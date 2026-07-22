@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  GraduationCap, CheckCircle2, BookOpen, Mic, MessageSquare, Target, Lightbulb, MapPin, Sparkles
+  GraduationCap, CheckCircle2, BookOpen, Mic, MessageSquare, Target, Lightbulb, MapPin, Sparkles, Award, Layers
 } from 'lucide-react';
 import {
   LearningLevel, VoiceSettings, VocabWord, GrammarCorrection, LevelNode, Lesson,
@@ -19,6 +19,8 @@ import { SpeakingPartnerView } from './SpeakingPartnerView';
 import { WordOfTheDayView } from './WordOfTheDayView';
 import { DailyChallengesView } from './DailyChallengesView';
 import { SmartSuggestionsView } from './SmartSuggestionsView';
+import { SpokenEnglishSyllabusView } from './SpokenEnglishSyllabusView';
+import { ProfessionalCurriculumView } from './ProfessionalCurriculumView';
 import { MASTER_LESSONS } from '../services/learningPathData';
 import { loadGamificationState, awardLessonRewards, calculateSmart5Scores } from '../services/gamificationService';
 
@@ -39,7 +41,7 @@ export const LearningHub: React.FC<LearningHubProps> = ({
   settings,
   onSaveGrammarCorrection
 }) => {
-  const [subTab, setSubTab] = useState<'path' | 'grammar' | 'vocab' | 'pronunciation' | 'speaking' | 'daily' | 'suggestions'>('path');
+  const [subTab, setSubTab] = useState<'professional' | 'syllabus' | 'path' | 'grammar' | 'vocab' | 'pronunciation' | 'speaking' | 'daily' | 'suggestions'>('professional');
   const [gamificationState, setGamificationState] = useState<GamificationState>(() => loadGamificationState());
   
   // Active Interactive Lesson Runner Modal State
@@ -99,10 +101,10 @@ export const LearningHub: React.FC<LearningHubProps> = ({
               </span>
             </div>
             <h2 className="text-2xl font-heading font-bold text-white">
-              AI English <span className="gradient-text">Fluency Experience</span>
+              Spoken English <span className="gradient-text">Academy & Professional Curriculum</span>
             </h2>
             <p className="text-xs text-slate-300 mt-1 max-w-xl leading-relaxed">
-              Progressive 10-level learning path, 9 interactive lesson types, gamified rewards, and smart 5-score feedback.
+              Complete 8-Level Professional Curriculum (Foundation ➔ Basic Grammar ➔ Tenses ➔ Advanced Grammar ➔ Vocab ➔ Spoken ➔ Business ➔ Interview Prep).
             </p>
           </div>
 
@@ -128,6 +130,28 @@ export const LearningHub: React.FC<LearningHubProps> = ({
 
       {/* Module Tabs Navigation */}
       <div className="flex items-center gap-2 overflow-x-auto p-1.5 rounded-2xl bg-slate-900/80 border border-white/10 scrollbar-none">
+        <button
+          onClick={() => setSubTab('professional')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-wide transition-all flex items-center gap-2 whitespace-nowrap ${
+            subTab === 'professional'
+              ? 'bg-gradient-to-r from-brand-600 to-cyan-500 text-white shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Layers className="w-4 h-4 text-emerald-400" /> 8-Level Academy Curriculum
+        </button>
+
+        <button
+          onClick={() => setSubTab('syllabus')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-wide transition-all flex items-center gap-2 whitespace-nowrap ${
+            subTab === 'syllabus'
+              ? 'bg-gradient-to-r from-brand-600 to-cyan-500 text-white shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Award className="w-4 h-4 text-amber-300" /> 3-Level Syllabus (135 Days)
+        </button>
+
         <button
           onClick={() => setSubTab('path')}
           className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-wide transition-all flex items-center gap-2 whitespace-nowrap ${
@@ -207,6 +231,14 @@ export const LearningHub: React.FC<LearningHubProps> = ({
       </div>
 
       {/* Sub-Tab View Rendering */}
+      {subTab === 'professional' && (
+        <ProfessionalCurriculumView settings={settings} />
+      )}
+
+      {subTab === 'syllabus' && (
+        <SpokenEnglishSyllabusView settings={settings} />
+      )}
+
       {subTab === 'path' && (
         <LearningPathMap
           unlockedLevelId={gamificationState.unlockedLevelId}
