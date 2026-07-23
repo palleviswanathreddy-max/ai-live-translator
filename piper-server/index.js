@@ -8,7 +8,43 @@ const { ensurePiperBinary } = require('./setup-piper');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Enable CORS for Vite frontend & cross-origin clients
+// Process Stability Guards - Prevent uncaught worker errors from crashing the server
+process.on('uncaughtException', (err) => {
+  console.error('[Piper Server Critical Exception] Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Piper Server Critical Rejection] Unhandled Promise Rejection:', reason);
+});
+
+// Explicit CORS Middleware - Loaded FIRST before all routes & handlers
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://ai-live-frontend.onrender.com',
+    'https://ai-live-frontend-8o9a.onrender.com',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://localhost:5000',
+    'http://127.0.0.1:5173'
+  ];
+
+  if (origin && (allowedOrigins.includes(origin) || origin.endsWith('.onrender.com'))) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  next();
+});
+
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
@@ -27,7 +63,7 @@ const MAX_CACHE_SIZE = 200;
 const inflightTTSMap = new Map();
 
 /**
- * High-Performance Persistent Piper Daemon Worker with Buffer Aggregator
+ * High-Performance Persistent Piper Daemon Worker with Buffer Aggregator & Error Isolation
  */
 class PiperWorker {
   constructor(langKey, modelPath) {
@@ -60,7 +96,13 @@ class PiperWorker {
 
     console.log(`[PiperWorker ${this.langKey}] Spawning persistent warm daemon: ${PIPER_BIN}`);
     const spawnT0 = performance.now();
-    this.process = spawn(PIPER_BIN, args);
+    try {
+      this.process = spawn(PIPER_BIN, args);
+    } catch (spawnErr) {
+      console.error(`[PiperWorker ${this.langKey}] Spawn exception:`, spawnErr);
+      this.resolveReady(false);
+      return this.readyPromise;
+    }
 
     this.process.stderr.on('data', (data) => {
       this.stderrBuffer += data.toString();
@@ -135,12 +177,17 @@ class PiperWorker {
     this.currentTask.execStart = performance.now();
     this.stderrBuffer = '';
 
-    const payload = JSON.stringify({
-      text: this.currentTask.text,
-      output_file: this.currentTask.tempOutputFile
-    }) + '\n';
+    try {
+      const payload = JSON.stringify({
+        text: this.currentTask.text,
+        output_file: this.currentTask.tempOutputFile
+      }) + '\n';
 
-    this.process.stdin.write(payload);
+      this.process.stdin.write(payload);
+    } catch (writeErr) {
+      console.error(`[PiperWorker ${this.langKey}] Stdin write error:`, writeErr);
+      this.finishCurrentTask(writeErr);
+    }
   }
 }
 
@@ -157,8 +204,12 @@ async function initWorkers() {
     workers.en = new PiperWorker('en', MODELS.en);
     promises.push(workers.en.start());
   }
-  await Promise.all(promises);
-  console.log(`[Piper Server] All persistent workers pre-warmed in RAM and ready for instant requests! 🚀`);
+  try {
+    await Promise.all(promises);
+    console.log(`[Piper Server] All persistent workers pre-warmed in RAM and ready! 🚀`);
+  } catch (err) {
+    console.error(`[Piper Server] Non-fatal error during worker initialization:`, err);
+  }
 }
 
 // Fallback single-shot CLI execution if daemon is unavailable
@@ -327,7 +378,7 @@ app.get('/', (req, res) => {
   `);
 });
 
-// POST /api/tts Speech Audio Generation Endpoint with 30s Timeout Protection & Detailed Metrics
+// POST /api/tts Speech Audio Generation Endpoint with Timeout & Full CORS Guarantee
 app.post('/api/tts', async (req, res) => {
   const reqStart = performance.now();
   req.setTimeout(30000); // 30-second HTTP timeout protection
@@ -380,13 +431,27 @@ app.post('/api/tts', async (req, res) => {
     return res.status(200).end(wavBuffer);
 
   } catch (error) {
-    console.error('[Piper Server] Error generating Piper WAV audio:', error);
+    console.error('[Piper Server Exception] Unhandled synthesis error in /api/tts:', error);
     if (!clientDisconnected && !res.headersSent) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
       return res.status(500).json({
         error: 'Failed to generate Piper WAV audio stream',
-        details: error.message
+        details: error.message || String(error)
       });
     }
+  }
+});
+
+// Express Global Error Handler - Guarantees CORS Headers on any unhandled middleware exception
+app.use((err, req, res, next) => {
+  console.error('[Piper Server Global Error Middleware] Unhandled middleware error:', err);
+  if (!res.headersSent) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    res.status(500).json({
+      error: 'Internal Server Error',
+      details: err.message || 'Unknown exception'
+    });
   }
 });
 
