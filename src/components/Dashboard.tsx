@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   BarChart3, Mic, BookOpen, Flame, Award, 
   TrendingUp, Sparkles, CheckCircle2, Clock, Volume2, MicOff, RefreshCw, GraduationCap, ShieldCheck, Check
@@ -26,6 +26,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, onNavigateToVoice, 
   const [userSpokenText, setUserSpokenText] = useState('');
   const [matchScore, setMatchScore] = useState<number | null>(null);
 
+  useEffect(() => {
+    const unsubscribe = speechRecognizer.onStateChange((state) => {
+      setIsRecordingQuiz(state === 'LISTENING' || state === 'STARTING');
+    });
+    return unsubscribe;
+  }, []);
+
   const activePrompt = PRACTICE_PROMPTS[currentPromptIdx];
 
   const handleListenSample = () => {
@@ -44,7 +51,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, onNavigateToVoice, 
   const handleStartQuizMic = () => {
     if (isRecordingQuiz) {
       speechRecognizer.stop();
-      setIsRecordingQuiz(false);
     } else {
       setUserSpokenText('');
       setMatchScore(null);

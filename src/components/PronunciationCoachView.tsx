@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Mic, MicOff, Volume2, Sparkles, RefreshCw, Award, Play, AlertCircle, CheckCircle2, RotateCcw } from 'lucide-react';
 import { PronunciationResult, VoiceSettings } from '../types';
 import { analyzePronunciation } from '../services/learningService';
@@ -30,6 +30,13 @@ export const PronunciationCoachView: React.FC<PronunciationCoachViewProps> = ({
   const [spokenText, setSpokenText] = useState('');
   const [analysis, setAnalysis] = useState<PronunciationResult | null>(null);
 
+  useEffect(() => {
+    const unsubscribe = speechRecognizer.onStateChange((state) => {
+      setIsRecording(state === 'LISTENING' || state === 'STARTING');
+    });
+    return unsubscribe;
+  }, []);
+
   const SAMPLE_PRACTICE_PHRASES = [
     'I am enthusiastic about improving my spoken English pronunciation.',
     'Could you please guide me to the nearest metro station?',
@@ -44,7 +51,6 @@ export const PronunciationCoachView: React.FC<PronunciationCoachViewProps> = ({
   const handleToggleRecord = () => {
     if (isRecording) {
       speechRecognizer.stop();
-      setIsRecording(false);
     } else {
       setSpokenText('');
       setAnalysis(null);

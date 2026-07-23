@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X, Check, ArrowRight, Volume2, Mic, MicOff, Sparkles, CheckCircle2, AlertCircle, RefreshCw, Layers
 } from 'lucide-react';
@@ -35,6 +35,13 @@ export const InteractiveLessonPlayer: React.FC<InteractiveLessonPlayerProps> = (
   const [isCorrect, setIsCorrect] = useState(false);
   const [correctAnswersCount, setCorrectAnswersCount] = useState(0);
 
+  useEffect(() => {
+    const unsubscribe = speechRecognizer.onStateChange((state) => {
+      setIsRecording(state === 'LISTENING' || state === 'STARTING');
+    });
+    return unsubscribe;
+  }, []);
+
   const currentQ: LessonQuestion = lesson.questions[currentIdx % lesson.questions.length];
   const progressPercent = Math.round(((currentIdx + 1) / lesson.questions.length) * 100);
 
@@ -64,7 +71,6 @@ export const InteractiveLessonPlayer: React.FC<InteractiveLessonPlayerProps> = (
   const handleToggleRecord = () => {
     if (isRecording) {
       speechRecognizer.stop();
-      setIsRecording(false);
     } else {
       setSpokenText('');
       speechRecognizer.start('en-US', false, {

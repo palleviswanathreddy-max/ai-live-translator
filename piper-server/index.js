@@ -68,7 +68,12 @@ function synthesizePiperSpeech(text, langKey) {
       return reject(new Error(`Piper ONNX model missing at ${modelPath}`));
     }
 
-    const child = spawn(PIPER_BIN, ['--model', modelPath, '--output_file', tempOutputFile]);
+    const ESPEAK_DATA = path.join(__dirname, 'bin', 'piper', 'espeak-ng-data');
+    const child = spawn(PIPER_BIN, [
+      '--model', modelPath,
+      '--output_file', tempOutputFile,
+      '--espeak_data', ESPEAK_DATA
+    ]);
 
     let stderrData = '';
     child.stderr.on('data', (data) => {
@@ -86,8 +91,10 @@ function synthesizePiperSpeech(text, langKey) {
       if (code === 0 && fs.existsSync(tempOutputFile)) {
         try {
           const wavBuffer = fs.readFileSync(tempOutputFile);
-          // Clean up temp file
-          fs.unlinkSync(tempOutputFile);
+          // Asynchronous non-blocking file cleanup after Windows handle release (prevents EBUSY)
+          setTimeout(() => {
+            fs.unlink(tempOutputFile, () => {});
+          }, 150);
           resolve(wavBuffer);
         } catch (readErr) {
           reject(readErr);

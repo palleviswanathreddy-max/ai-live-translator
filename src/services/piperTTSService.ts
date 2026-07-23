@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { VoiceSettings, LanguageCode } from '../types';
+import { speechRecognizer } from './speechRecognition';
 
 export interface PiperSpeakOptions {
   text: string;
@@ -14,6 +15,7 @@ export class PiperTTSService {
   private currentAudio: HTMLAudioElement | null = null;
   private audioContext: AudioContext | null = null;
   private currentSourceNode: AudioBufferSourceNode | null = null;
+  private currentGainNode: GainNode | null = null;
   private audioCache: Map<string, ArrayBuffer> = new Map();
   private isProcessingQueue: boolean = false;
   private speechQueue: PiperSpeakOptions[] = [];
@@ -21,6 +23,7 @@ export class PiperTTSService {
   private loadingListeners: Set<(loading: boolean) => void> = new Set();
   private isLoadingAudio: boolean = false;
   private isAudioUnlocked: boolean = false;
+  private ttsEchoTimer: any = null;
 
   constructor() {
     this.initAudioContext();
@@ -49,15 +52,12 @@ export class PiperTTSService {
       } else {
         this.isAudioUnlocked = true;
       }
-
-      window.removeEventListener('click', unlock);
-      window.removeEventListener('touchstart', unlock);
-      window.removeEventListener('keydown', unlock);
     };
 
-    window.addEventListener('click', unlock);
-    window.addEventListener('touchstart', unlock);
-    window.addEventListener('keydown', unlock);
+    window.addEventListener('click', unlock, { passive: true });
+    window.addEventListener('touchstart', unlock, { passive: true });
+    window.addEventListener('keydown', unlock, { passive: true });
+    window.addEventListener('mousedown', unlock, { passive: true });
   }
 
   public subscribeLoading(listener: (loading: boolean) => void): () => void {
@@ -84,8 +84,11 @@ export class PiperTTSService {
   public async speak(options: PiperSpeakOptions): Promise<boolean> {
     if (!options.text || !options.text.trim()) return false;
 
-    // Interrupt previous playback
-    this.stop();
+    // Interrupt previous playback audio nodes and clear pending echo timers
+    this.stopAudioNodesOnly();
+
+    // Lock mic during TTS audio generation & playback
+    speechRecognizer.notifyTTSSpeaking(true);
 
     const cleanText = options.text.trim();
     const langTag = options.lang.startsWith('te') ? 'te' : 'en';
@@ -97,6 +100,36 @@ export class PiperTTSService {
     
     this.setLoading(true);
     this.currentOptions = options;
+
+    const finalizeTTS = (isError = false, err?: Error) => {
+      this.setLoading(false);
+      
+      if (this.currentSourceNode) {
+        try { this.currentSourceNode.disconnect(); } catch {}
+        this.currentSourceNode = null;
+      }
+      if (this.currentGainNode) {
+        try { this.currentGainNode.disconnect(); } catch {}
+        this.currentGainNode = null;
+      }
+      this.currentAudio = null;
+
+      if (this.ttsEchoTimer) {
+        clearTimeout(this.ttsEchoTimer);
+      }
+
+      // Small 150ms buffer to allow room echo to clear before opening microphone
+      this.ttsEchoTimer = setTimeout(() => {
+        this.ttsEchoTimer = null;
+        speechRecognizer.notifyTTSSpeaking(false);
+        if (isError && options.onError && err) {
+          options.onError(err);
+        }
+        if (options.onEnd) {
+          options.onEnd();
+        }
+      }, 150);
+    };
 
     try {
       let arrayBuffer: ArrayBuffer | undefined = this.audioCache.get(cacheKey);
@@ -142,16 +175,26 @@ export class PiperTTSService {
           throw new Error("Received empty 0-byte audio buffer from Piper backend.");
         }
 
+        // LRU Cache Size Management (cap at 30 buffers to prevent memory leaks)
+        if (this.audioCache.size >= 30) {
+          const oldestKey = this.audioCache.keys().next().value;
+          if (oldestKey) this.audioCache.delete(oldestKey);
+        }
         this.audioCache.set(cacheKey, arrayBuffer.slice(0));
       }
 
-      // Ensure AudioContext is initialized and resumed
-      if (this.audioContext) {
-        if (this.audioContext.state === 'suspended') {
-          console.info("[PiperTTS Logs] Resuming suspended AudioContext before decoding...");
+      // Try to resume suspended AudioContext
+      if (this.audioContext && this.audioContext.state === 'suspended') {
+        console.info("[PiperTTS Logs] Resuming suspended AudioContext before decoding...");
+        try {
           await this.audioContext.resume();
+        } catch (e) {
+          console.warn("[PiperTTS Logs] AudioContext resume attempt failed:", e);
         }
+      }
 
+      // ONLY use Web Audio API if AudioContext is strictly in 'running' state
+      if (this.audioContext && this.audioContext.state === 'running') {
         console.info(`[PiperTTS Logs] AudioContext state before decode: ${this.audioContext.state}`);
         console.info("[PiperTTS Logs] 4. Decoding audio data via Web Audio API...");
 
@@ -163,6 +206,21 @@ export class PiperTTSService {
           console.error("[PiperTTS Logs] decodeAudioData failure:", decodeErr);
           throw decodeErr;
         }
+
+        // Diagnostic Tracing: Measure PCM samples, RMS level, & AudioContext properties
+        const pcmData = audioBuffer.getChannelData(0);
+        let sumSq = 0;
+        let nonZeroCount = 0;
+        for (let i = 0; i < pcmData.length; i++) {
+          const val = pcmData[i];
+          if (val !== 0) nonZeroCount++;
+          sumSq += val * val;
+        }
+        const rms = Math.sqrt(sumSq / Math.max(1, pcmData.length));
+        const first100 = Array.from(pcmData.slice(0, 100)).map(v => Number(v.toFixed(4)));
+
+        console.info(`[Audio Tracing 1] PCM Samples Total: ${pcmData.length}, Non-Zero: ${nonZeroCount}, RMS Level: ${rms.toFixed(6)}`);
+        console.info(`[Audio Tracing 2] First 100 PCM Samples:`, first100);
 
         const sourceNode = this.audioContext.createBufferSource();
         sourceNode.buffer = audioBuffer;
@@ -176,13 +234,15 @@ export class PiperTTSService {
         sourceNode.connect(gainNode);
         gainNode.connect(this.audioContext.destination);
 
+        console.info(`[Audio Tracing 3] GainNode Value: ${gainNode.gain.value}`);
+        console.info(`[Audio Tracing 4] AudioContext State: ${this.audioContext.state}, Destination maxChannels: ${this.audioContext.destination.maxChannelCount}`);
+
         this.currentSourceNode = sourceNode;
+        this.currentGainNode = gainNode;
 
         sourceNode.onended = () => {
           console.info("[PiperTTS Logs] AudioBufferSourceNode playback lifecycle completed (ended).");
-          this.setLoading(false);
-          this.currentSourceNode = null;
-          if (options.onEnd) options.onEnd();
+          finalizeTTS(false);
         };
 
         sourceNode.start(0);
@@ -192,8 +252,8 @@ export class PiperTTSService {
         return true;
       }
 
-      // Fallback: HTML5 Audio Element
-      console.info("[PiperTTS Logs] Playing via HTML5 Audio element fallback...");
+      // Fallback: HTML5 Audio Element (used when AudioContext is suspended or unavailable)
+      console.info("[PiperTTS Logs] AudioContext is suspended or unavailable. Playing via HTML5 Audio element fallback...");
       const blob = new Blob([arrayBuffer], { type: 'audio/wav' });
       const blobUrl = URL.createObjectURL(blob);
 
@@ -211,17 +271,12 @@ export class PiperTTSService {
 
       audio.onended = () => {
         console.info("[PiperTTS Logs] HTML5 Audio playback finished.");
-        this.setLoading(false);
-        this.currentAudio = null;
-        if (options.onEnd) options.onEnd();
+        finalizeTTS(false);
       };
 
       audio.onerror = (err) => {
         console.error("[PiperTTS Logs] HTML5 Audio play error:", err);
-        this.setLoading(false);
-        this.currentAudio = null;
-        if (options.onError) options.onError(new Error("HTML5 Audio play error"));
-        if (options.onEnd) options.onEnd();
+        finalizeTTS(true, new Error("HTML5 Audio play error"));
       };
 
       await audio.play();
@@ -229,9 +284,7 @@ export class PiperTTSService {
 
     } catch (error) {
       console.error("[PiperTTS Logs] Speech generation or decoding failed:", error);
-      this.setLoading(false);
-      if (options.onError) options.onError(error as Error);
-      if (options.onEnd) options.onEnd();
+      finalizeTTS(true, error as Error);
       return false;
     }
   }
@@ -280,10 +333,23 @@ export class PiperTTSService {
     }
   }
 
-  public stop(): void {
+  private stopAudioNodesOnly(): void {
+    if (this.ttsEchoTimer) {
+      clearTimeout(this.ttsEchoTimer);
+      this.ttsEchoTimer = null;
+    }
     if (this.currentSourceNode) {
-      try { this.currentSourceNode.stop(); } catch {}
+      try {
+        this.currentSourceNode.stop();
+        this.currentSourceNode.disconnect();
+      } catch {}
       this.currentSourceNode = null;
+    }
+    if (this.currentGainNode) {
+      try {
+        this.currentGainNode.disconnect();
+      } catch {}
+      this.currentGainNode = null;
     }
     if (this.currentAudio) {
       this.currentAudio.pause();
@@ -293,6 +359,14 @@ export class PiperTTSService {
     this.speechQueue = [];
     this.isProcessingQueue = false;
     this.setLoading(false);
+  }
+
+  public stop(): void {
+    const wasSpeaking = this.isSpeaking();
+    this.stopAudioNodesOnly();
+    if (wasSpeaking) {
+      speechRecognizer.notifyTTSSpeaking(false);
+    }
   }
 
   public replay(): void {

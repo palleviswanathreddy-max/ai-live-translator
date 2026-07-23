@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Mic, MicOff, Volume2, ArrowLeftRight, Copy, Star, Check, 
   Sparkles, Play, Pause, RefreshCw, Radio, Trash2
@@ -35,6 +35,14 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
   const [contextMode, setContextMode] = useState<ContextMode>('learning');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
+
+  // Subscribe to Speech Recognition State Machine transitions
+  useEffect(() => {
+    const unsubscribe = speechRecognizer.onStateChange((state) => {
+      setIsListening(state === 'LISTENING' || state === 'STARTING');
+    });
+    return unsubscribe;
+  }, []);
 
   // Start speech recognition for specified language
   const startListeningForLang = (srcL: LanguageCode) => {
@@ -79,7 +87,6 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
   const handleToggleMic = () => {
     if (isListening) {
       speechRecognizer.stop();
-      setIsListening(false);
     } else {
       startListeningForLang(sourceLang);
     }
@@ -89,9 +96,10 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
   const handleProcessTranslation = async (text: string, currentSrcLang: LanguageCode) => {
     if (!text.trim()) return;
 
-    const currentTgtLang = currentSrcLang === 'te-IN' ? 'en-US' : 'te-IN';
+    speechRecognizer.setProcessing(true);
     setIsTranslating(true);
     try {
+      const currentTgtLang = currentSrcLang === 'te-IN' ? 'en-US' : 'te-IN';
       const result = await translateText(text, currentSrcLang, currentTgtLang, contextMode);
       
       const newItem: TranslationItem = {
@@ -120,12 +128,16 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
             startListeningForLang(currentSrcLang);
           }
         });
-      } else if (settings.continuousMode) {
-        startListeningForLang(currentSrcLang);
+      } else {
+        speechRecognizer.setProcessing(false);
+        if (settings.continuousMode) {
+          startListeningForLang(currentSrcLang);
+        }
       }
     } catch (e) {
       console.error("Translation processing error:", e);
-    } fontally: {
+      speechRecognizer.setProcessing(false);
+    } finally {
       setIsTranslating(false);
       setLiveTranscript('');
     }

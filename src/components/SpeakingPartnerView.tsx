@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   MessageSquare, Mic, MicOff, Send, Volume2, Sparkles, AlertCircle, CheckCircle2,
   Briefcase, ShoppingBag, Building, Plane, Utensils, HeartPulse, GraduationCap, Laptop, MessageCircle
@@ -42,6 +42,13 @@ export const SpeakingPartnerView: React.FC<SpeakingPartnerViewProps> = ({
   });
   const [userInput, setUserInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = speechRecognizer.onStateChange((state) => {
+      setIsRecording(state === 'LISTENING' || state === 'STARTING');
+    });
+    return unsubscribe;
+  }, []);
 
   const activeScenarioDetail = SCENARIO_DETAILS.find((s) => s.id === selectedScenario) || SCENARIO_DETAILS[0];
 
@@ -90,7 +97,6 @@ export const SpeakingPartnerView: React.FC<SpeakingPartnerViewProps> = ({
   const handleToggleRecord = () => {
     if (isRecording) {
       speechRecognizer.stop();
-      setIsRecording(false);
     } else {
       setUserInput('');
       speechRecognizer.start('en-US', false, {
