@@ -293,19 +293,37 @@ app.post('/api/tts', async (req, res) => {
   const cleanText = text.trim();
   const langKey = lang.startsWith('te') ? 'te' : 'en';
 
+  let clientDisconnected = false;
+  req.on('close', () => {
+    clientDisconnected = true;
+  });
+
   try {
     const wavBuffer = await getOrSynthesizeSpeech(cleanText, langKey);
 
+    if (clientDisconnected) {
+      console.warn(`[Piper Server] Client disconnected before response could be sent for '${langKey}': "${cleanText.slice(0, 20)}..."`);
+      return;
+    }
+
+    if (!wavBuffer || wavBuffer.length === 0) {
+      return res.status(500).json({ error: 'Generated empty 0-byte audio buffer' });
+    }
+
     res.setHeader('Content-Type', 'audio/wav');
+    res.setHeader('Content-Length', wavBuffer.length);
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    return res.status(200).send(wavBuffer);
+    res.setHeader('Connection', 'keep-alive');
+    return res.status(200).end(wavBuffer);
 
   } catch (error) {
     console.error('[Piper Server] Error generating Piper WAV audio:', error);
-    return res.status(500).json({
-      error: 'Failed to generate Piper WAV audio stream',
-      details: error.message
-    });
+    if (!clientDisconnected && !res.headersSent) {
+      return res.status(500).json({
+        error: 'Failed to generate Piper WAV audio stream',
+        details: error.message
+      });
+    }
   }
 });
 

@@ -117,26 +117,34 @@ export class PiperTTSService {
         console.info(`[PiperTTS Telemetry] 🌐 2. fetch started ➔ Target URL: ${primaryUrl}`);
 
         const fetchPromise = (async () => {
+          const payload = { text: cleanText, lang: langTag, model: 'te_IN-padmavathi-medium' };
+          
+          const doFetchWithRetry = async (targetUrl: string, isRetry = false): Promise<Response> => {
+            try {
+              return await fetch(targetUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Accept': 'audio/wav, audio/mpeg, audio*'
+                },
+                body: JSON.stringify(payload)
+              });
+            } catch (err: any) {
+              if (!isRetry) {
+                console.warn(`[PiperTTS Telemetry] Network fetch error on ${targetUrl}. Retrying once...`, err);
+                await new Promise(r => setTimeout(r, 250));
+                return await doFetchWithRetry(targetUrl, true);
+              }
+              throw err;
+            }
+          };
+
           let res: Response;
           try {
-            res = await fetch(primaryUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'audio/wav, audio/mpeg, audio/*'
-              },
-              body: JSON.stringify({ text: cleanText, lang: langTag, model: 'te_IN-padmavathi-medium' })
-            });
+            res = await doFetchWithRetry(primaryUrl);
           } catch (fetchErr) {
             console.warn(`[PiperTTS Telemetry] Direct fetch to ${primaryUrl} failed. Trying relative /api/tts fallback...`, fetchErr);
-            res = await fetch('/api/tts', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'audio/wav, audio/mpeg, audio/*'
-              },
-              body: JSON.stringify({ text: cleanText, lang: langTag, model: 'te_IN-padmavathi-medium' })
-            });
+            res = await doFetchWithRetry('/api/tts');
           }
 
           const fetchCompletedMs = performance.now();
@@ -147,31 +155,37 @@ export class PiperTTSService {
           }
 
           let buf: ArrayBuffer;
-          if (res.body) {
-            const reader = res.body.getReader();
-            const chunks: Uint8Array[] = [];
+          try {
+            if (res.body) {
+              const reader = res.body.getReader();
+              const chunks: Uint8Array[] = [];
 
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              if (value && value.length > 0) {
-                if (first_audio_byte_received === null) {
-                  first_audio_byte_received = performance.now();
-                  console.info(`[PiperTTS Telemetry] ⚡ first_audio_byte_received: ${first_audio_byte_received.toFixed(2)}ms (Delta: ${(first_audio_byte_received - tts_request_start).toFixed(2)}ms)`);
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                if (value && value.length > 0) {
+                  if (first_audio_byte_received === null) {
+                    first_audio_byte_received = performance.now();
+                    console.info(`[PiperTTS Telemetry] ⚡ first_audio_byte_received: ${first_audio_byte_received.toFixed(2)}ms (Delta: ${(first_audio_byte_received - tts_request_start).toFixed(2)}ms)`);
+                  }
+                  chunks.push(value);
                 }
-                chunks.push(value);
               }
-            }
 
-            let totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
-            const combined = new Uint8Array(totalLength);
-            let offset = 0;
-            for (const chunk of chunks) {
-              combined.set(chunk, offset);
-              offset += chunk.length;
+              let totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+              const combined = new Uint8Array(totalLength);
+              let offset = 0;
+              for (const chunk of chunks) {
+                combined.set(chunk, offset);
+                offset += chunk.length;
+              }
+              buf = combined.buffer;
+            } else {
+              buf = await res.arrayBuffer();
+              first_audio_byte_received = performance.now();
             }
-            buf = combined.buffer;
-          } else {
+          } catch (streamErr) {
+            console.warn(`[PiperTTS Telemetry] ReadableStream read error, falling back to arrayBuffer():`, streamErr);
             buf = await res.arrayBuffer();
             first_audio_byte_received = performance.now();
           }
