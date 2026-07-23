@@ -20,7 +20,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Single Unified CORS Middleware - Loaded FIRST before all routes
+// 2. Single Unified CORS & Preflight Middleware - Loaded FIRST
 // ---------------------------------------------------------------------------
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -342,7 +342,7 @@ async function getOrSynthesizeSpeech(cleanText, langKey) {
 // 6. Express Endpoints
 // ---------------------------------------------------------------------------
 
-// Health Endpoint (GET /health)
+// Health Monitoring Endpoint (GET /health)
 app.get('/health', (req, res) => {
   const uptimeSeconds = Math.floor((Date.now() - serverStartTime) / 1000);
   return res.json({
@@ -351,8 +351,7 @@ app.get('/health', (req, res) => {
       te: Boolean(workers.te && workers.te.isReady),
       en: Boolean(workers.en && workers.en.isReady)
     },
-    uptime: `${uptimeSeconds}s`,
-    cacheSize: ttsAudioCacheMap.size
+    uptime: `${uptimeSeconds}s`
   });
 });
 
@@ -403,18 +402,13 @@ app.post('/api/tts', async (req, res) => {
 
   let clientAborted = false;
   req.on('aborted', () => { clientAborted = true; });
-  req.on('close', () => {
-    if (!res.writableEnded && !res.headersSent) {
-      clientAborted = true;
-    }
-  });
 
   try {
     const synthResult = await getOrSynthesizeSpeech(cleanText, langKey);
     const { wavBuffer, cached, queue_time, piper_execution_time, buffer_generation_time } = synthResult;
 
     if (clientAborted) {
-      console.warn(`[Piper Server] Client connection aborted before response flushes for '${langKey}': "${cleanText.slice(0, 20)}..."`);
+      console.warn(`[Piper Server] Request aborted by client: "${cleanText.slice(0, 20)}..."`);
       return;
     }
 
@@ -437,14 +431,13 @@ app.post('/api/tts', async (req, res) => {
     res.setHeader('Content-Type', 'audio/wav');
     res.setHeader('Content-Length', wavBuffer.length);
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Piper-Latency-Ms', total_latency.toFixed(1));
 
     return res.status(200).end(wavBuffer);
 
   } catch (error) {
     console.error('[Piper Server Exception] Unhandled synthesis error in /api/tts:', error);
-    if (!clientAborted && !res.headersSent) {
+    if (!res.headersSent) {
       res.setHeader('Access-Control-Allow-Origin', '*');
       return res.status(500).json({
         error: 'Failed to generate Piper WAV audio stream',
