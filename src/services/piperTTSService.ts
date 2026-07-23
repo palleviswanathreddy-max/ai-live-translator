@@ -22,6 +22,7 @@ export class PiperTTSService {
   private isLoadingAudio: boolean = false;
   private isAudioUnlocked: boolean = false;
   private ttsEchoTimer: ReturnType<typeof setTimeout> | null = null;
+  private inflightFetchMap: Map<string, Promise<ArrayBuffer>> = new Map();
 
   constructor() {
     this.initAudioContext();
@@ -104,43 +105,57 @@ export class PiperTTSService {
 
       if (arrayBuffer) {
         console.info(`[PiperTTS Logs] Loaded cached ArrayBuffer for key: ${cacheKey}`);
+      } else if (this.inflightFetchMap.has(cacheKey)) {
+        console.info(`[PiperTTS Logs] 🔄 Deduplicating in-flight fetch request for key: ${cacheKey}`);
+        arrayBuffer = await this.inflightFetchMap.get(cacheKey)!;
       } else {
         console.info(`[PiperTTS Logs] 2. fetch started ➔ Target URL: ${primaryUrl}`);
 
-        let res: Response;
+        const fetchPromise = (async () => {
+          let res: Response;
+          try {
+            res = await fetch(primaryUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'audio/wav, audio/mpeg, audio/*'
+              },
+              body: JSON.stringify({ text: cleanText, lang: langTag, model: 'te_IN-padmavathi-medium' })
+            });
+          } catch (fetchErr) {
+            console.warn(`[PiperTTS Logs] Direct fetch to ${primaryUrl} failed. Trying relative /api/tts fallback...`, fetchErr);
+            res = await fetch('/api/tts', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'audio/wav, audio/mpeg, audio/*'
+              },
+              body: JSON.stringify({ text: cleanText, lang: langTag, model: 'te_IN-padmavathi-medium' })
+            });
+          }
+
+          const contentType = res.headers.get('content-type') || 'unknown';
+          console.info(`[PiperTTS Logs] 3. fetch completed ➔ Status: ${res.status} ${res.statusText}, Content-Type: ${contentType}`);
+
+          if (!res.ok) {
+            throw new Error(`Piper TTS HTTP Error ${res.status}: ${res.statusText}`);
+          }
+
+          const buf = await res.arrayBuffer();
+          console.info(`[PiperTTS Logs] ArrayBuffer payload size: ${buf.byteLength} bytes.`);
+
+          if (buf.byteLength === 0) {
+            throw new Error("Received empty 0-byte audio buffer from Piper backend.");
+          }
+          return buf;
+        })();
+
+        this.inflightFetchMap.set(cacheKey, fetchPromise);
+
         try {
-          res = await fetch(primaryUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'audio/wav, audio/mpeg, audio/*'
-            },
-            body: JSON.stringify({ text: cleanText, lang: langTag, model: 'te_IN-padmavathi-medium' })
-          });
-        } catch (fetchErr) {
-          console.warn(`[PiperTTS Logs] Direct fetch to ${primaryUrl} failed. Trying relative /api/tts fallback...`, fetchErr);
-          res = await fetch('/api/tts', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'audio/wav, audio/mpeg, audio/*'
-            },
-            body: JSON.stringify({ text: cleanText, lang: langTag, model: 'te_IN-padmavathi-medium' })
-          });
-        }
-
-        const contentType = res.headers.get('content-type') || 'unknown';
-        console.info(`[PiperTTS Logs] 3. fetch completed ➔ Status: ${res.status} ${res.statusText}, Content-Type: ${contentType}`);
-
-        if (!res.ok) {
-          throw new Error(`Piper TTS HTTP Error ${res.status}: ${res.statusText}`);
-        }
-
-        arrayBuffer = await res.arrayBuffer();
-        console.info(`[PiperTTS Logs] ArrayBuffer payload size: ${arrayBuffer.byteLength} bytes.`);
-
-        if (arrayBuffer.byteLength === 0) {
-          throw new Error("Received empty 0-byte audio buffer from Piper backend.");
+          arrayBuffer = await fetchPromise;
+        } finally {
+          this.inflightFetchMap.delete(cacheKey);
         }
 
         this.audioCache.set(cacheKey, arrayBuffer.slice(0));
