@@ -6,4 +6,4 @@ services:
     staticPublishPath: ./dist
     envVars:
       - key: VITE_PIPER_API_URL
-        value: https://piper-telugu-tts.onrender.com
+        value: https://ai-live-piper-backend.onrender.com
