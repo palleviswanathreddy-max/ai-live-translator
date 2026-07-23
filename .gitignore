@@ -38,3 +38,7 @@ piper-server/*.wav
 piper-server/temp_*.wav
 piper-server/body.json
 piper-server/test_synthesis.js
+piper-server/bin/piper/piper
+piper-server/bin/*.tar.gz
+render-*.wav
+render-body.json
