@@ -89,13 +89,16 @@ export class PiperTTSService {
     // Interrupt previous playback
     this.stop();
 
+    const tts_request_start = performance.now();
+    let first_audio_byte_received: number | null = null;
+    let playback_start: number | null = null;
+
     const cleanText = options.text.trim();
     const langTag = options.lang.startsWith('te') ? 'te' : 'en';
     const cacheKey = `piper_buf:${langTag}:${cleanText}`;
     const primaryUrl = this.getBackendUrl();
 
-    console.info(`[PiperTTS Logs] 1. speak() initiated for lang '${langTag}': "${cleanText.slice(0, 35)}..."`);
-    console.info(`[PiperTTS Logs] Current AudioContext state before fetch: ${this.audioContext ? this.audioContext.state : 'null'}`);
+    console.info(`[PiperTTS Telemetry] ⏱️ tts_request_start: ${tts_request_start.toFixed(2)}ms for lang '${langTag}': "${cleanText.slice(0, 35)}..."`);
     
     this.setLoading(true);
     this.currentOptions = options;
@@ -104,12 +107,14 @@ export class PiperTTSService {
       let arrayBuffer: ArrayBuffer | undefined = this.audioCache.get(cacheKey);
 
       if (arrayBuffer) {
-        console.info(`[PiperTTS Logs] Loaded cached ArrayBuffer for key: ${cacheKey}`);
+        first_audio_byte_received = performance.now();
+        console.info(`[PiperTTS Telemetry] ⚡ Instant cache hit for key: ${cacheKey}`);
       } else if (this.inflightFetchMap.has(cacheKey)) {
-        console.info(`[PiperTTS Logs] 🔄 Deduplicating in-flight fetch request for key: ${cacheKey}`);
+        console.info(`[PiperTTS Telemetry] 🔄 Deduplicating in-flight fetch request for key: ${cacheKey}`);
         arrayBuffer = await this.inflightFetchMap.get(cacheKey)!;
+        first_audio_byte_received = performance.now();
       } else {
-        console.info(`[PiperTTS Logs] 2. fetch started ➔ Target URL: ${primaryUrl}`);
+        console.info(`[PiperTTS Telemetry] 🌐 2. fetch started ➔ Target URL: ${primaryUrl}`);
 
         const fetchPromise = (async () => {
           let res: Response;
@@ -123,7 +128,7 @@ export class PiperTTSService {
               body: JSON.stringify({ text: cleanText, lang: langTag, model: 'te_IN-padmavathi-medium' })
             });
           } catch (fetchErr) {
-            console.warn(`[PiperTTS Logs] Direct fetch to ${primaryUrl} failed. Trying relative /api/tts fallback...`, fetchErr);
+            console.warn(`[PiperTTS Telemetry] Direct fetch to ${primaryUrl} failed. Trying relative /api/tts fallback...`, fetchErr);
             res = await fetch('/api/tts', {
               method: 'POST',
               headers: {
@@ -134,15 +139,44 @@ export class PiperTTSService {
             });
           }
 
-          const contentType = res.headers.get('content-type') || 'unknown';
-          console.info(`[PiperTTS Logs] 3. fetch completed ➔ Status: ${res.status} ${res.statusText}, Content-Type: ${contentType}`);
+          const fetchCompletedMs = performance.now();
+          console.info(`[PiperTTS Telemetry] 🌐 Fetch HTTP Response received in ${(fetchCompletedMs - tts_request_start).toFixed(2)}ms. Status: ${res.status}`);
 
           if (!res.ok) {
             throw new Error(`Piper TTS HTTP Error ${res.status}: ${res.statusText}`);
           }
 
-          const buf = await res.arrayBuffer();
-          console.info(`[PiperTTS Logs] ArrayBuffer payload size: ${buf.byteLength} bytes.`);
+          let buf: ArrayBuffer;
+          if (res.body) {
+            const reader = res.body.getReader();
+            const chunks: Uint8Array[] = [];
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (value && value.length > 0) {
+                if (first_audio_byte_received === null) {
+                  first_audio_byte_received = performance.now();
+                  console.info(`[PiperTTS Telemetry] ⚡ first_audio_byte_received: ${first_audio_byte_received.toFixed(2)}ms (Delta: ${(first_audio_byte_received - tts_request_start).toFixed(2)}ms)`);
+                }
+                chunks.push(value);
+              }
+            }
+
+            let totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+            const combined = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+              combined.set(chunk, offset);
+              offset += chunk.length;
+            }
+            buf = combined.buffer;
+          } else {
+            buf = await res.arrayBuffer();
+            first_audio_byte_received = performance.now();
+          }
+
+          console.info(`[PiperTTS Telemetry] Audio payload received size: ${buf.byteLength} bytes.`);
 
           if (buf.byteLength === 0) {
             throw new Error("Received empty 0-byte audio buffer from Piper backend.");
@@ -164,28 +198,23 @@ export class PiperTTSService {
       // Ensure AudioContext is initialized and resumed
       if (this.audioContext) {
         if (this.audioContext.state === 'suspended') {
-          console.info("[PiperTTS Logs] Resuming suspended AudioContext before decoding...");
+          console.info("[PiperTTS Telemetry] Resuming suspended AudioContext before decoding...");
           await this.audioContext.resume();
         }
 
-        console.info(`[PiperTTS Logs] AudioContext state before decode: ${this.audioContext.state}`);
-        console.info("[PiperTTS Logs] 4. Decoding audio data via Web Audio API...");
-
+        console.info("[PiperTTS Telemetry] Decoding audio data via Web Audio API...");
         let audioBuffer: AudioBuffer;
         try {
           audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer.slice(0));
-          console.info(`[PiperTTS Logs] decodeAudioData success! Duration: ${audioBuffer.duration.toFixed(3)}s, SampleRate: ${audioBuffer.sampleRate}Hz, Channels: ${audioBuffer.numberOfChannels}`);
         } catch (decodeErr) {
-          console.error("[PiperTTS Logs] decodeAudioData failure:", decodeErr);
+          console.error("[PiperTTS Telemetry] decodeAudioData failure:", decodeErr);
           throw decodeErr;
         }
 
         const sourceNode = this.audioContext.createBufferSource();
         sourceNode.buffer = audioBuffer;
 
-        // Apply voice settings: playbackRate & volume gain
         sourceNode.playbackRate.value = options.settings.rate || 1.0;
-
         const gainNode = this.audioContext.createGain();
         gainNode.gain.value = options.settings.volume !== undefined ? options.settings.volume : 1.0;
 
@@ -195,14 +224,22 @@ export class PiperTTSService {
         this.currentSourceNode = sourceNode;
 
         sourceNode.onended = () => {
-          console.info("[PiperTTS Logs] AudioBufferSourceNode playback lifecycle completed (ended).");
+          console.info("[PiperTTS Telemetry] AudioBufferSourceNode playback lifecycle completed.");
           this.setLoading(false);
           this.currentSourceNode = null;
           if (options.onEnd) options.onEnd();
         };
 
         sourceNode.start(0);
-        console.info(`[PiperTTS Logs] 5. source.start() executed successfully! AudioContext state: ${this.audioContext.state} 🔊`);
+        playback_start = performance.now();
+
+        console.info('[PiperTTS Telemetry] 🔊 Playback Telemetry Summary:', {
+          tts_request_start: `${tts_request_start.toFixed(2)}ms`,
+          first_audio_byte_received: first_audio_byte_received ? `${first_audio_byte_received.toFixed(2)}ms` : 'N/A',
+          playback_start: `${playback_start.toFixed(2)}ms`,
+          total_startup_latency_ms: `${(playback_start - tts_request_start).toFixed(2)}ms`
+        });
+
         this.setLoading(false);
         if (options.onStart) options.onStart();
         return true;
