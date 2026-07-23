@@ -20,7 +20,7 @@ const CATEGORIES = [
   { id: 'Shopping & Travel', name: 'Travel & Shopping', icon: Briefcase },
 ];
 
-export const Phrasebook: React.FC<PhrasebookProps> = ({ settings, onTranslatePhrase }) => {
+export const Phrasebook: React.FC<PhrasebookProps> = React.memo(({ settings, onTranslatePhrase }) => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [playingIndex, setPlayingIndex] = useState<number | null>(null);
@@ -69,8 +69,12 @@ export const Phrasebook: React.FC<PhrasebookProps> = ({ settings, onTranslatePhr
         
         {/* Search Bar */}
         <div className="relative w-full">
+          <label htmlFor="phrasebook-search-input" className="sr-only">Search Phrasebook</label>
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
           <input
+            id="phrasebook-search-input"
+            name="phrasebookSearch"
+            autoComplete="off"
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -170,4 +174,4 @@ export const Phrasebook: React.FC<PhrasebookProps> = ({ settings, onTranslatePhr
 
     </div>
   );
-};
+});

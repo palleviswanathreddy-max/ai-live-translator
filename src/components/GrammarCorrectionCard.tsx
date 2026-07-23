@@ -89,13 +89,16 @@ export const GrammarCorrectionCard: React.FC<GrammarCorrectionCardProps> = ({
 
       {/* Input Box & Quick Presets */}
       <div className="space-y-2">
-        <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+        <label htmlFor="grammar-input-sentence" className="text-xs font-semibold text-slate-300 flex items-center justify-between">
           <span>Type or Paste English Sentence:</span>
           <span className="text-[11px] text-slate-400">Auto-detects subject-verb, tenses & word order</span>
         </label>
         
         <div className="relative">
           <textarea
+            id="grammar-input-sentence"
+            name="grammarInput"
+            autoComplete="off"
             rows={2}
             value={inputText}
             onChange={(e) => {

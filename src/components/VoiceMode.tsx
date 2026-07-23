@@ -36,6 +36,9 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
 
+  const lastProcessedTextRef = React.useRef<string>('');
+  const isProcessingTranslationRef = React.useRef<boolean>(false);
+
   // Subscribe to Speech Recognition State Machine transitions
   useEffect(() => {
     const unsubscribe = speechRecognizer.onStateChange((state) => {
@@ -47,6 +50,7 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
   // Start speech recognition for specified language
   const startListeningForLang = (srcL: LanguageCode) => {
     setLiveTranscript('');
+    console.info('[SPEECH STARTED]', { lang: srcL });
     const success = speechRecognizer.start(srcL, settings.continuousMode, {
       onStart: () => {
         setIsListening(true);
@@ -54,6 +58,7 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
       onResult: (text, isFinal) => {
         setLiveTranscript(text);
         if (isFinal) {
+          console.info('[FINAL TRANSCRIPT RECEIVED]', { transcript: text });
           handleProcessTranslation(text, srcL);
         }
       },
@@ -87,6 +92,7 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
   const handleToggleMic = () => {
     if (isListening) {
       speechRecognizer.stop();
+      setIsListening(false);
     } else {
       startListeningForLang(sourceLang);
     }
@@ -94,17 +100,33 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
 
   // Process Translation in either direction (Telugu → English OR English → Telugu)
   const handleProcessTranslation = async (text: string, currentSrcLang: LanguageCode) => {
-    if (!text.trim()) return;
+    const cleanText = text.trim();
+    if (!cleanText) return;
 
+    // Protection 1: Prevent duplicate translation for identical transcript
+    if (cleanText === lastProcessedTextRef.current) {
+      return;
+    }
+
+    // Protection 2: Prevent concurrent translation requests
+    if (isProcessingTranslationRef.current) {
+      return;
+    }
+
+    lastProcessedTextRef.current = cleanText;
+    isProcessingTranslationRef.current = true;
     speechRecognizer.setProcessing(true);
     setIsTranslating(true);
+
     try {
+      console.info('[TRANSLATION REQUEST STARTED]', { text: cleanText, from: currentSrcLang });
       const currentTgtLang = currentSrcLang === 'te-IN' ? 'en-US' : 'te-IN';
-      const result = await translateText(text, currentSrcLang, currentTgtLang, contextMode);
-      
+      const result = await translateText(cleanText, currentSrcLang, currentTgtLang, contextMode);
+      console.info('[TRANSLATION REQUEST COMPLETED]', { translatedText: result.translatedText });
+
       const newItem: TranslationItem = {
         id: 'trans-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-        sourceText: text,
+        sourceText: cleanText,
         translatedText: result.translatedText,
         sourceLang: currentSrcLang,
         targetLang: currentTgtLang,
@@ -121,21 +143,20 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
       // Auto play voice if enabled
       if (settings.autoPlay) {
         setPlayingId(newItem.id);
+        console.info('[TTS STARTED]', { lang: currentTgtLang });
         speechSpeaker.speak(result.translatedText, currentTgtLang, settings, () => {
+          console.info('[TTS COMPLETED]');
           setPlayingId(null);
-          // Resume continuous listening if continuous mode is active
-          if (settings.continuousMode) {
-            startListeningForLang(currentSrcLang);
-          }
+          isProcessingTranslationRef.current = false;
+          speechRecognizer.setProcessing(false);
         });
       } else {
+        isProcessingTranslationRef.current = false;
         speechRecognizer.setProcessing(false);
-        if (settings.continuousMode) {
-          startListeningForLang(currentSrcLang);
-        }
       }
     } catch (e) {
-      console.error("Translation processing error:", e);
+      console.error("[API ERROR] Translation processing error:", e);
+      isProcessingTranslationRef.current = false;
       speechRecognizer.setProcessing(false);
     } finally {
       setIsTranslating(false);
@@ -165,17 +186,17 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20">
-      
+
       {/* Top Controls Card: Languages, Swap & Context Mode */}
       <div className="p-4 sm:p-6 rounded-3xl glass-card relative overflow-hidden">
-        
+
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          
+
           {/* Language Pair Selectors */}
           <div className="flex items-center gap-3 w-full sm:w-auto justify-center">
-            
+
             {/* Telugu Source Button */}
-            <button 
+            <button
               onClick={() => handleSelectLanguages('te-IN', 'en-US')}
               className={`flex-1 sm:flex-none px-4 py-2.5 rounded-2xl border text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
                 sourceLang === 'te-IN'
@@ -196,7 +217,7 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
             </button>
 
             {/* English Source Button */}
-            <button 
+            <button
               onClick={() => handleSelectLanguages('en-US', 'te-IN')}
               className={`flex-1 sm:flex-none px-4 py-2.5 rounded-2xl border text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
                 sourceLang === 'en-US'
@@ -211,8 +232,11 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
 
           {/* Context Mode Selector */}
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-            <span className="text-xs text-slate-400 font-medium hidden sm:inline">Tone:</span>
+            <label htmlFor="voice-mode-context" className="text-xs text-slate-400 font-medium hidden sm:inline">Tone:</label>
             <select
+              id="voice-mode-context"
+              name="contextMode"
+              autoComplete="off"
               value={contextMode}
               onChange={(e) => setContextMode(e.target.value as ContextMode)}
               className="w-full sm:w-auto px-3 py-2 rounded-xl bg-slate-900 border border-white/10 text-xs font-semibold text-cyan-300 focus:outline-none focus:border-cyan-500"
@@ -228,10 +252,13 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
 
         {/* Mode Indicators & Toggles */}
         <div className="mt-4 pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-3 text-xs">
-          
+
           <div className="flex items-center gap-4 text-slate-400">
-            <label className="flex items-center gap-2 cursor-pointer hover:text-white transition-colors">
+            <label htmlFor="voice-mode-continuous" className="flex items-center gap-2 cursor-pointer hover:text-white transition-colors">
               <input
+                id="voice-mode-continuous"
+                name="continuousMode"
+                autoComplete="off"
                 type="checkbox"
                 checked={settings.continuousMode}
                 onChange={(e) => onUpdateSettings({ ...settings, continuousMode: e.target.checked })}
@@ -242,8 +269,11 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
               </span>
             </label>
 
-            <label className="flex items-center gap-2 cursor-pointer hover:text-white transition-colors">
+            <label htmlFor="voice-mode-autoplay" className="flex items-center gap-2 cursor-pointer hover:text-white transition-colors">
               <input
+                id="voice-mode-autoplay"
+                name="autoPlay"
+                autoComplete="off"
                 type="checkbox"
                 checked={settings.autoPlay}
                 onChange={(e) => onUpdateSettings({ ...settings, autoPlay: e.target.checked })}
@@ -267,7 +297,7 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
 
       {/* Main Mic Recording Hub */}
       <div className="p-6 sm:p-8 rounded-3xl glass-card flex flex-col items-center justify-center text-center relative overflow-hidden">
-        
+
         {/* Visualizer Waveform Canvas */}
         <AudioWaveform isActive={isListening} color={sourceLang === 'te-IN' ? '#06b6d4' : '#8b5cf6'} />
 
@@ -290,7 +320,7 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
 
         {/* Large Glowing Microphone Button */}
         <div className="relative my-4">
-          
+
           {/* Animated Glow Ring */}
           {isListening && (
             <div className="absolute -inset-4 rounded-full bg-gradient-to-r from-cyan-500 via-brand-500 to-emerald-500 opacity-75 blur-xl animate-pulse" />
@@ -321,7 +351,7 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
 
       {/* Live Conversation Stream History */}
       <div className="space-y-4">
-        
+
         <div className="flex items-center justify-between px-2">
           <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-cyan-400" /> Live Conversation Feed
@@ -345,11 +375,11 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
         ) : (
           <div className="space-y-4">
             {history.map((item) => (
-              <div 
+              <div
                 key={item.id}
                 className="p-5 rounded-2xl glass-card border border-white/10 hover:border-cyan-500/30 transition-all duration-300 space-y-3"
               >
-                
+
                 {/* Header Tag & Time */}
                 <div className="flex items-center justify-between text-xs pb-2 border-b border-white/10">
                   <div className="flex items-center gap-2">
@@ -382,7 +412,7 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
 
                 {/* Speech Original & Translated Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  
+
                   {/* Original Speech */}
                   <div className="p-3.5 rounded-xl bg-slate-900/60 border border-white/5 space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
@@ -403,8 +433,8 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
                       <button
                         onClick={() => handlePlayAudio(item)}
                         className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all ${
-                          playingId === item.id 
-                            ? 'bg-cyan-500 text-white animate-pulse' 
+                          playingId === item.id
+                            ? 'bg-cyan-500 text-white animate-pulse'
                             : 'bg-slate-800 text-cyan-300 hover:bg-cyan-600 hover:text-white'
                         }`}
                       >

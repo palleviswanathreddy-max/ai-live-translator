@@ -7,7 +7,7 @@ interface AudioWaveformProps {
   barCount?: number;
 }
 
-export const AudioWaveform: React.FC<AudioWaveformProps> = ({
+export const AudioWaveform: React.FC<AudioWaveformProps> = React.memo(({
   isActive,
   color = '#06b6d4',
   height = 64,
@@ -42,7 +42,7 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
           amplitude = Math.max(6, Math.abs(amplitude));
         } else {
           // Idle ambient resting wave
-          amplitude = Math.sin(i * 0.2 + phase * 0.5) * 4 + 6;
+          amplitude = Math.sin(i * 0.2) * 4 + 6;
         }
 
         const gradient = ctx.createLinearGradient(0, centerY - amplitude, 0, centerY + amplitude);
@@ -61,14 +61,18 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
         ctx.fill();
       }
 
-      phase += isActive ? 0.12 : 0.03;
-      animationFrameId = requestAnimationFrame(render);
+      if (isActive) {
+        phase += 0.12;
+        animationFrameId = requestAnimationFrame(render);
+      }
     };
 
     render();
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
     };
   }, [isActive, color, height, barCount]);
 
@@ -82,4 +86,4 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
       />
     </div>
   );
-};
+});

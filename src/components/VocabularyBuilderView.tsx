@@ -127,10 +127,13 @@ export const VocabularyBuilderView: React.FC<VocabularyBuilderViewProps> = ({
       {activeTab === 'extracted' && (
         <div className="space-y-4">
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-slate-300">
+            <label htmlFor="vocab-custom-sentence" className="text-xs font-semibold text-slate-300">
               Type sentence to extract vocabulary terms:
             </label>
             <input
+              id="vocab-custom-sentence"
+              name="customSentence"
+              autoComplete="off"
               type="text"
               value={customInput}
               onChange={(e) => handleExtract(e.target.value)}
@@ -145,8 +148,12 @@ export const VocabularyBuilderView: React.FC<VocabularyBuilderViewProps> = ({
       {activeTab !== 'practice' && (
         <div className="flex flex-col sm:flex-row items-center gap-3">
           <div className="relative flex-1 w-full">
+            <label htmlFor="vocab-search-input" className="sr-only">Search Vocabulary</label>
             <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
             <input
+              id="vocab-search-input"
+              name="vocabSearch"
+              autoComplete="off"
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}

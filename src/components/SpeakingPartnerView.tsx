@@ -261,7 +261,11 @@ export const SpeakingPartnerView: React.FC<SpeakingPartnerViewProps> = ({
           {isRecording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
 
+        <label htmlFor="speaking-partner-reply" className="sr-only">Reply to Partner</label>
         <input
+          id="speaking-partner-reply"
+          name="partnerReply"
+          autoComplete="off"
           type="text"
           value={userInput}
           onChange={(e) => setUserInput(e.target.value)}

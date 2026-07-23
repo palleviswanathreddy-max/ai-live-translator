@@ -7,7 +7,7 @@ interface MobileNavigationProps {
   onOpenSettings: () => void;
 }
 
-export const MobileNavigation: React.FC<MobileNavigationProps> = ({
+export const MobileNavigation: React.FC<MobileNavigationProps> = React.memo(({
   activeTab,
   setActiveTab,
   onOpenSettings,
@@ -114,4 +114,4 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({
       </div>
     </div>
   );
-};
+});

@@ -88,8 +88,12 @@ export const SmartSuggestionsView: React.FC<SmartSuggestionsViewProps> = ({ sett
 
       {/* Search Input */}
       <div className="relative">
+        <label htmlFor="smart-suggestions-search-input" className="sr-only">Search Expressions</label>
         <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
         <input
+          id="smart-suggestions-search-input"
+          name="suggestionsSearch"
+          autoComplete="off"
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}

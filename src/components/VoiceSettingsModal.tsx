@@ -102,10 +102,13 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
             {/* Speech Rate Slider */}
             <div className="space-y-1">
               <div className="flex justify-between font-semibold text-slate-300">
-                <span>Playback Speed:</span>
+                <label htmlFor="voice-settings-playback-speed">Playback Speed:</label>
                 <span className="text-cyan-400 font-bold">{settings.rate}x</span>
               </div>
               <input
+                id="voice-settings-playback-speed"
+                name="playbackSpeed"
+                autoComplete="off"
                 type="range"
                 min="0.5"
                 max="2.0"
@@ -124,10 +127,13 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
             {/* Pitch Slider */}
             <div className="space-y-1">
               <div className="flex justify-between font-semibold text-slate-300">
-                <span>Voice Pitch:</span>
+                <label htmlFor="voice-settings-pitch">Voice Pitch:</label>
                 <span className="text-indigo-400 font-bold">{settings.pitch}</span>
               </div>
               <input
+                id="voice-settings-pitch"
+                name="voicePitch"
+                autoComplete="off"
                 type="range"
                 min="0.5"
                 max="1.5"
@@ -141,10 +147,13 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
             {/* Volume Slider */}
             <div className="space-y-1">
               <div className="flex justify-between font-semibold text-slate-300">
-                <span>Volume:</span>
+                <label htmlFor="voice-settings-volume">Volume:</label>
                 <span className="text-emerald-400 font-bold">{Math.round(settings.volume * 100)}%</span>
               </div>
               <input
+                id="voice-settings-volume"
+                name="voiceVolume"
+                autoComplete="off"
                 type="range"
                 min="0"
                 max="1"
@@ -157,25 +166,31 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
 
             {/* Toggles */}
             <div className="pt-2 border-t border-white/10 space-y-2">
-              <label className="flex items-center justify-between cursor-pointer py-1">
-                <span className="text-slate-300 font-medium">Auto-play Translated Audio</span>
+              <div className="flex items-center justify-between py-1">
+                <label htmlFor="voice-settings-autoplay" className="text-slate-300 font-medium cursor-pointer">Auto-play Translated Audio</label>
                 <input
+                  id="voice-settings-autoplay"
+                  name="autoPlay"
+                  autoComplete="off"
                   type="checkbox"
                   checked={settings.autoPlay}
                   onChange={(e) => onSave({ ...settings, autoPlay: e.target.checked })}
                   className="w-4 h-4 rounded accent-cyan-400"
                 />
-              </label>
+              </div>
 
-              <label className="flex items-center justify-between cursor-pointer py-1">
-                <span className="text-slate-300 font-medium">Continuous Mic Conversation</span>
+              <div className="flex items-center justify-between py-1">
+                <label htmlFor="voice-settings-continuous" className="text-slate-300 font-medium cursor-pointer">Continuous Mic Conversation</label>
                 <input
+                  id="voice-settings-continuous"
+                  name="continuousMode"
+                  autoComplete="off"
                   type="checkbox"
                   checked={settings.continuousMode}
                   onChange={(e) => onSave({ ...settings, continuousMode: e.target.checked })}
                   className="w-4 h-4 rounded accent-brand-500"
                 />
-              </label>
+              </div>
             </div>
 
           </div>

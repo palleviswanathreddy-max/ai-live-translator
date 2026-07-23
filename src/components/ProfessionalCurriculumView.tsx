@@ -429,7 +429,11 @@ export const ProfessionalCurriculumView: React.FC<ProfessionalCurriculumViewProp
               </div>
 
               {/* Student Name Input */}
+              <label htmlFor="professional-curriculum-student-name" className="sr-only">Scholar Name for Certificate</label>
               <input
+                id="professional-curriculum-student-name"
+                name="studentName"
+                autoComplete="name"
                 type="text"
                 value={studentName}
                 onChange={(e) => setStudentName(e.target.value)}

@@ -660,7 +660,11 @@ export const SpokenEnglishSyllabusView: React.FC<{ settings: VoiceSettings }> = 
               </div>
 
               {/* Student Name Input */}
+              <label htmlFor="spoken-syllabus-student-name" className="sr-only">Student Name for Certificate</label>
               <input
+                id="spoken-syllabus-student-name"
+                name="studentName"
+                autoComplete="name"
                 type="text"
                 value={studentName}
                 onChange={(e) => setStudentName(e.target.value)}

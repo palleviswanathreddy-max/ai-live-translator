@@ -150,8 +150,11 @@ export const TextMode: React.FC<TextModeProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 font-medium">Context:</span>
+            <label htmlFor="text-mode-context" className="text-xs text-slate-400 font-medium">Context:</label>
             <select
+              id="text-mode-context"
+              name="contextMode"
+              autoComplete="off"
               value={contextMode}
               onChange={(e) => setContextMode(e.target.value as ContextMode)}
               className="px-3 py-2 rounded-xl bg-slate-900 border border-white/10 text-xs font-semibold text-cyan-300 focus:outline-none"
@@ -172,7 +175,7 @@ export const TextMode: React.FC<TextModeProps> = ({
         <div className="p-5 rounded-3xl glass-card border border-white/10 flex flex-col justify-between min-h-[260px]">
           <div>
             <div className="flex items-center justify-between pb-2 border-b border-white/10 text-xs font-bold uppercase tracking-wider text-slate-400">
-              <span>Original ({sourceLang === 'te-IN' ? 'Telugu' : 'English'})</span>
+              <label htmlFor="translation-input">Original ({sourceLang === 'te-IN' ? 'Telugu' : 'English'})</label>
               {inputText.length > 0 && (
                 <button
                   onClick={() => setInputText('')}
@@ -184,6 +187,9 @@ export const TextMode: React.FC<TextModeProps> = ({
             </div>
 
             <textarea
+              id="translation-input"
+              name="translationInput"
+              autoComplete="off"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder={sourceLang === 'te-IN' ? 'టైప్ చేయండి లేదా ఉదాహరణ: నమస్కారం! నేను ఇంగ్లీష్ నేర్చుకోవాలనుకుంటున్నాను.' : 'Type or paste English sentence here...'}

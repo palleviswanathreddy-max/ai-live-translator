@@ -20,12 +20,17 @@ function decodeHTMLEntities(text: string): string {
     .replace(/&#10;/g, '\n');
 }
 
+// In-Memory Translation LRU Cache
+const translationCacheMap = new Map<string, TranslationResult>();
+const MAX_CACHE_SIZE = 100;
+
 export async function translateText(
   sourceText: string,
   sourceLang: LanguageCode,
   targetLang: LanguageCode,
   contextMode: ContextMode = 'casual'
 ): Promise<TranslationResult> {
+  const startTime = performance.now();
   const cleanInput = sourceText.trim();
   if (!cleanInput) {
     return {
@@ -33,6 +38,17 @@ export async function translateText(
       confidence: 100,
       provider: 'Offline Neural Engine'
     };
+  }
+
+  const cacheKey = `${sourceLang}:${targetLang}:${contextMode}:${cleanInput.toLowerCase()}`;
+  if (translationCacheMap.has(cacheKey)) {
+    const cachedResult = translationCacheMap.get(cacheKey)!;
+    console.info('[TRANSLATION LATENCY]', {
+      cached: true,
+      latencyMs: (performance.now() - startTime).toFixed(2),
+      provider: cachedResult.provider
+    });
+    return cachedResult;
   }
 
   // Determine standard 2-letter codes for APIs
@@ -51,13 +67,41 @@ export async function translateText(
       usageContext: dictionaryMatch.usageContext
     };
 
-    return {
+    const res: TranslationResult = {
       translatedText,
       confidence: 99,
       studentAnalysis,
       provider: 'Offline Neural Engine'
     };
+
+    if (translationCacheMap.size >= MAX_CACHE_SIZE) {
+      const firstKey = translationCacheMap.keys().next().value;
+      if (firstKey) translationCacheMap.delete(firstKey);
+    }
+    translationCacheMap.set(cacheKey, res);
+
+    console.info('[TRANSLATION LATENCY]', {
+      cached: false,
+      latencyMs: (performance.now() - startTime).toFixed(2),
+      provider: res.provider
+    });
+
+    return res;
   }
+
+  const saveResultToCache = (res: TranslationResult): TranslationResult => {
+    if (translationCacheMap.size >= MAX_CACHE_SIZE) {
+      const firstKey = translationCacheMap.keys().next().value;
+      if (firstKey) translationCacheMap.delete(firstKey);
+    }
+    translationCacheMap.set(cacheKey, res);
+    console.info('[TRANSLATION LATENCY]', {
+      cached: false,
+      latencyMs: (performance.now() - startTime).toFixed(2),
+      provider: res.provider
+    });
+    return res;
+  };
 
   // Step 2: Try Google Translate Free API Endpoint
   try {
@@ -79,12 +123,12 @@ export async function translateText(
             ? generateStudentBreakdown(rawTranslation, cleanInput)
             : generateStudentBreakdown(cleanInput, rawTranslation);
 
-          return {
+          return saveResultToCache({
             translatedText: rawTranslation,
             confidence: 98,
             studentAnalysis,
             provider: 'Google Translate Engine'
-          };
+          });
         }
       }
     }
@@ -119,12 +163,12 @@ export async function translateText(
             ? generateStudentBreakdown(rawTranslation, cleanInput)
             : generateStudentBreakdown(cleanInput, rawTranslation);
 
-          return {
+          return saveResultToCache({
             translatedText: rawTranslation,
             confidence,
             studentAnalysis,
             provider: 'MyMemory Free Engine'
-          };
+          });
         }
       }
     }

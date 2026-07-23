@@ -94,10 +94,13 @@ export const PronunciationCoachView: React.FC<PronunciationCoachViewProps> = ({
 
       {/* Target Sentence Selector / Input */}
       <div className="space-y-2">
-        <label className="text-xs font-semibold text-slate-300">
+        <label htmlFor="pronunciation-practice-sentence" className="text-xs font-semibold text-slate-300">
           Sentence to Practice Speaking:
         </label>
         <textarea
+          id="pronunciation-practice-sentence"
+          name="practiceSentence"
+          autoComplete="off"
           rows={2}
           value={practiceSentence}
           onChange={(e) => {

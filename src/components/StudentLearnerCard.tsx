@@ -9,7 +9,7 @@ interface StudentLearnerCardProps {
   settings: VoiceSettings;
 }
 
-export const StudentLearnerCard: React.FC<StudentLearnerCardProps> = ({
+export const StudentLearnerCard: React.FC<StudentLearnerCardProps> = React.memo(({
   analysis,
   englishText,
   settings
@@ -118,4 +118,4 @@ export const StudentLearnerCard: React.FC<StudentLearnerCardProps> = ({
 
     </div>
   );
-};
+});

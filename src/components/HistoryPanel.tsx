@@ -15,7 +15,7 @@ interface HistoryPanelProps {
   onClearAll: () => void;
 }
 
-export const HistoryPanel: React.FC<HistoryPanelProps> = ({
+export const HistoryPanel: React.FC<HistoryPanelProps> = React.memo(({
   history,
   settings,
   onToggleFavorite,
@@ -154,8 +154,12 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
         <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
           
           <div className="relative w-full sm:flex-1">
+            <label htmlFor="history-search-input" className="sr-only">Search Conversation</label>
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
             <input
+              id="history-search-input"
+              name="historySearch"
+              autoComplete="off"
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -272,4 +276,4 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
 
     </div>
   );
-};
+});

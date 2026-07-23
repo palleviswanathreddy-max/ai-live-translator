@@ -104,10 +104,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <form onSubmit={handleLogin} className="space-y-3">
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">Your Full Name:</label>
+                <label htmlFor="auth-user-name" className="text-slate-300 font-semibold block mb-1">Your Full Name:</label>
                 <div className="relative">
                   <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                   <input
+                    id="auth-user-name"
+                    name="username"
+                    autoComplete="name"
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -118,10 +121,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
 
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">Email Address:</label>
+                <label htmlFor="auth-user-email" className="text-slate-300 font-semibold block mb-1">Email Address:</label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                   <input
+                    id="auth-user-email"
+                    name="email"
+                    autoComplete="email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
