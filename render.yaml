@@ -1,24 +1,9 @@
 services:
   - type: web
-    name: ai-live-piper-backend
-    env: node
-    region: singapore
-    plan: free
-    rootDir: piper-server
-    buildCommand: npm install && node setup-piper.js
-    startCommand: npm start
-    envVars:
-      - key: PORT
-        value: 5000
-
-  - type: web
     name: ai-live-frontend
     env: static
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
     envVars:
       - key: VITE_PIPER_API_URL
-        fromService:
-          type: web
-          name: ai-live-piper-backend
-          property: host
+        value: https://piper-telugu-tts.onrender.com
