@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="50%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <linearGradient id="iconGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e2e8f0"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Background Shield Container -->
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#bgGrad)" />
+
+  <!-- Inner Subtle Border -->
+  <rect x="48" y="48" width="416" height="416" rx="96" fill="none" stroke="#ffffff" stroke-opacity="0.25" stroke-width="6" />
+
+  <!-- Central Microphone & Waves Symbol -->
+  <g filter="url(#glow)">
+    <!-- Microphone Capsule -->
+    <rect x="216" y="140" width="80" height="150" rx="40" fill="url(#iconGrad)" />
+    
+    <!-- Microphone Arc -->
+    <path d="M 160 230 C 160 310, 352 310, 352 230" fill="none" stroke="url(#iconGrad)" stroke-width="28" stroke-linecap="round" />
+    
+    <!-- Microphone Base Stand -->
+    <path d="M 256 308 L 256 368" stroke="url(#iconGrad)" stroke-width="28" stroke-linecap="round" />
+    <path d="M 196 368 L 316 368" stroke="url(#iconGrad)" stroke-width="28" stroke-linecap="round" />
+
+    <!-- Dynamic Voice Waves Left -->
+    <path d="M 112 210 C 96 235, 96 275, 112 300" fill="none" stroke="#38bdf8" stroke-width="20" stroke-linecap="round" />
+    
+    <!-- Dynamic Voice Waves Right -->
+    <path d="M 400 210 C 416 235, 416 275, 400 300" fill="none" stroke="#34d399" stroke-width="20" stroke-linecap="round" />
+  </g>
+</svg>
