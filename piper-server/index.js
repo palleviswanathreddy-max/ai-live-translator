@@ -1,5 +1,4 @@
 const express = require('express');
-const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -7,8 +6,11 @@ const { ensurePiperBinary } = require('./setup-piper');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const serverStartTime = Date.now();
 
-// Process Stability Guards - Prevent uncaught worker errors from crashing the server
+// ---------------------------------------------------------------------------
+// 1. Process Stability Guards - Prevent uncaught exceptions from crashing Node
+// ---------------------------------------------------------------------------
 process.on('uncaughtException', (err) => {
   console.error('[Piper Server Critical Exception] Uncaught Exception:', err);
 });
@@ -17,7 +19,9 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('[Piper Server Critical Rejection] Unhandled Promise Rejection:', reason);
 });
 
-// Explicit CORS Middleware - Loaded FIRST before all routes & handlers
+// ---------------------------------------------------------------------------
+// 2. Single Unified CORS Middleware - Loaded FIRST before all routes
+// ---------------------------------------------------------------------------
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   const allowedOrigins = [
@@ -45,9 +49,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(cors({ origin: '*' }));
 app.use(express.json());
 
+// ---------------------------------------------------------------------------
+// 3. System Paths & Constants
+// ---------------------------------------------------------------------------
 const isWin = process.platform === 'win32';
 const PIPER_BIN = path.join(__dirname, 'bin', 'piper', isWin ? 'piper.exe' : 'piper');
 
@@ -62,9 +68,9 @@ const ttsAudioCacheMap = new Map();
 const MAX_CACHE_SIZE = 200;
 const inflightTTSMap = new Map();
 
-/**
- * High-Performance Persistent Piper Daemon Worker with Buffer Aggregator & Error Isolation
- */
+// ---------------------------------------------------------------------------
+// 4. Persistent Warm Piper Worker Pool Implementation
+// ---------------------------------------------------------------------------
 class PiperWorker {
   constructor(langKey, modelPath) {
     this.langKey = langKey;
@@ -84,7 +90,7 @@ class PiperWorker {
     });
 
     if (!fs.existsSync(PIPER_BIN) || !fs.existsSync(this.modelPath)) {
-      console.warn(`[PiperWorker ${this.langKey}] Binary or model missing. Cannot start persistent daemon.`);
+      console.warn(`[PiperWorker ${this.langKey}] Binary or model missing. Skipping worker init.`);
       this.resolveReady(false);
       return this.readyPromise;
     }
@@ -121,7 +127,7 @@ class PiperWorker {
     });
 
     this.process.on('error', (err) => {
-      console.error(`[PiperWorker ${this.langKey}] Process error:`, err);
+      console.error(`[PiperWorker ${this.langKey}] Worker process error:`, err);
       this.handleFailure(err);
     });
 
@@ -193,7 +199,7 @@ class PiperWorker {
 
 const workers = {};
 
-// Initialize and Pre-warm Persistent Workers on Startup
+// Pre-warm Persistent Workers on Startup
 async function initWorkers() {
   const promises = [];
   if (fs.existsSync(MODELS.te)) {
@@ -250,13 +256,14 @@ function synthesizePiperFallbackCLI(text, langKey, tempOutputFile) {
   });
 }
 
-// Synthesize with Warm Daemon, In-Memory Cache, & In-Flight Request Deduplication
+// ---------------------------------------------------------------------------
+// 5. Synthesis & Deduplication Orchestrator
+// ---------------------------------------------------------------------------
 async function getOrSynthesizeSpeech(cleanText, langKey) {
   const cacheKey = `${langKey}:${cleanText.toLowerCase()}`;
 
   // 1. In-Memory Cache Check (<1ms response time)
   if (ttsAudioCacheMap.has(cacheKey)) {
-    console.log(`[Piper Server Cache] ⚡ Instant cache hit for '${langKey}': "${cleanText.slice(0, 30)}..."`);
     return {
       wavBuffer: ttsAudioCacheMap.get(cacheKey),
       cached: true,
@@ -268,7 +275,6 @@ async function getOrSynthesizeSpeech(cleanText, langKey) {
 
   // 2. In-Flight Request Deduplication
   if (inflightTTSMap.has(cacheKey)) {
-    console.log(`[Piper Server Dedupe] 🔄 Joining existing in-flight synthesis promise for '${langKey}': "${cleanText.slice(0, 30)}..."`);
     return await inflightTTSMap.get(cacheKey);
   }
 
@@ -332,22 +338,25 @@ async function getOrSynthesizeSpeech(cleanText, langKey) {
   }
 }
 
-// Automatically run idempotent setup check for Render / Linux instances
-ensurePiperBinary().then(async () => {
-  if (fs.existsSync(PIPER_BIN)) {
-    if (!isWin) {
-      try { fs.chmodSync(PIPER_BIN, 0o755); } catch (e) {}
-    }
-    console.log(`✅ Piper Executable Engine verified at: ${PIPER_BIN}`);
-    await initWorkers();
-  } else {
-    console.warn(`⚠️ Piper Executable Engine not found at: ${PIPER_BIN}`);
-  }
-}).catch(err => {
-  console.error('❌ Error during Piper binary setup:', err);
+// ---------------------------------------------------------------------------
+// 6. Express Endpoints
+// ---------------------------------------------------------------------------
+
+// Health Endpoint (GET /health)
+app.get('/health', (req, res) => {
+  const uptimeSeconds = Math.floor((Date.now() - serverStartTime) / 1000);
+  return res.json({
+    status: 'ok',
+    workers: {
+      te: Boolean(workers.te && workers.te.isReady),
+      en: Boolean(workers.en && workers.en.isReady)
+    },
+    uptime: `${uptimeSeconds}s`,
+    cacheSize: ttsAudioCacheMap.size
+  });
 });
 
-// Health Check / Info Endpoint
+// Legacy Health / API Info Endpoint (GET /api/tts)
 app.get('/api/tts', (req, res) => {
   return res.json({
     status: 'online',
@@ -378,7 +387,7 @@ app.get('/', (req, res) => {
   `);
 });
 
-// POST /api/tts Speech Audio Generation Endpoint with Timeout & Full CORS Guarantee
+// POST /api/tts Speech Audio Generation Endpoint
 app.post('/api/tts', async (req, res) => {
   const reqStart = performance.now();
   req.setTimeout(30000); // 30-second HTTP timeout protection
@@ -392,17 +401,20 @@ app.post('/api/tts', async (req, res) => {
   const cleanText = text.trim();
   const langKey = lang.startsWith('te') ? 'te' : 'en';
 
-  let clientDisconnected = false;
+  let clientAborted = false;
+  req.on('aborted', () => { clientAborted = true; });
   req.on('close', () => {
-    clientDisconnected = true;
+    if (!res.writableEnded && !res.headersSent) {
+      clientAborted = true;
+    }
   });
 
   try {
     const synthResult = await getOrSynthesizeSpeech(cleanText, langKey);
     const { wavBuffer, cached, queue_time, piper_execution_time, buffer_generation_time } = synthResult;
 
-    if (clientDisconnected) {
-      console.warn(`[Piper Server] Client disconnected before response could be sent for '${langKey}': "${cleanText.slice(0, 20)}..."`);
+    if (clientAborted) {
+      console.warn(`[Piper Server] Client connection aborted before response flushes for '${langKey}': "${cleanText.slice(0, 20)}..."`);
       return;
     }
 
@@ -413,12 +425,12 @@ app.post('/api/tts', async (req, res) => {
     const response_send_start = performance.now();
     const total_latency = response_send_start - reqStart;
 
-    console.info(`[Piper Server Metrics] 🚀 Synthesis Complete for '${langKey}': "${cleanText.slice(0, 30)}..."`, {
+    console.info(`[Piper Metrics]`, {
       cached,
       queue_time_ms: queue_time.toFixed(1),
-      piper_execution_time_ms: piper_execution_time.toFixed(1),
-      buffer_generation_time_ms: buffer_generation_time.toFixed(1),
-      total_server_latency_ms: total_latency.toFixed(1),
+      inference_time_ms: piper_execution_time.toFixed(1),
+      buffer_time_ms: buffer_generation_time.toFixed(1),
+      total_latency_ms: total_latency.toFixed(1),
       payload_bytes: wavBuffer.length
     });
 
@@ -432,7 +444,7 @@ app.post('/api/tts', async (req, res) => {
 
   } catch (error) {
     console.error('[Piper Server Exception] Unhandled synthesis error in /api/tts:', error);
-    if (!clientDisconnected && !res.headersSent) {
+    if (!clientAborted && !res.headersSent) {
       res.setHeader('Access-Control-Allow-Origin', '*');
       return res.status(500).json({
         error: 'Failed to generate Piper WAV audio stream',
@@ -442,9 +454,9 @@ app.post('/api/tts', async (req, res) => {
   }
 });
 
-// Express Global Error Handler - Guarantees CORS Headers on any unhandled middleware exception
+// Express Global Error Handler
 app.use((err, req, res, next) => {
-  console.error('[Piper Server Global Error Middleware] Unhandled middleware error:', err);
+  console.error('[Piper Server Global Error Middleware] Unhandled error:', err);
   if (!res.headersSent) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
@@ -455,6 +467,31 @@ app.use((err, req, res, next) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Multilingual Piper Native Neural Engine Server running on http://localhost:${PORT}`);
+// ---------------------------------------------------------------------------
+// 7. Ordered Server Startup Sequence
+// ensurePiperBinary() -> initWorkers() -> app.listen()
+// ---------------------------------------------------------------------------
+async function startServer() {
+  console.log('[Piper Server Startup] 1. Checking Piper binary executable...');
+  await ensurePiperBinary();
+
+  if (!isWin && fs.existsSync(PIPER_BIN)) {
+    try { fs.chmodSync(PIPER_BIN, 0o755); } catch (e) {}
+  }
+
+  console.log('[Piper Server Startup] 2. Initializing and pre-warming persistent RAM daemon workers...');
+  await initWorkers();
+
+  const teReady = Boolean(workers.te && workers.te.isReady);
+  const enReady = Boolean(workers.en && workers.en.isReady);
+  console.log(`[Piper Server Startup] 3. Persistent Workers Warm Status ➔ Telugu: ${teReady}, English: ${enReady}`);
+
+  app.listen(PORT, () => {
+    console.log(`🚀 Multilingual Piper Native Neural Engine Server running on http://localhost:${PORT}`);
+  });
+}
+
+startServer().catch((err) => {
+  console.error('❌ Critical Server Startup Exception:', err);
+  process.exit(1);
 });
