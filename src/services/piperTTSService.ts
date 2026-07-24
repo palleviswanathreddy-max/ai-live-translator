@@ -18,6 +18,7 @@ export class PiperTTSService {
   private currentSourceNode: AudioBufferSourceNode | null = null;
   private audioCache: Map<string, ArrayBuffer> = new Map();
   private decodedCache: Map<string, AudioBuffer> = new Map();
+  private currentRequestKey: string | null = null;
   private isProcessingQueue: boolean = false;
   private speechQueue: PiperSpeakOptions[] = [];
   private currentOptions: PiperSpeakOptions | null = null;
@@ -110,19 +111,45 @@ export class PiperTTSService {
 
     this.speechQueue = [];
     this.isProcessingQueue = false;
+    this.currentRequestKey = null;
+    this.currentOptions = null;
     this.setLoading(false);
   }
-
   public async speak(options: PiperSpeakOptions): Promise<boolean> {
+
     if (!options.text || !options.text.trim()) return false;
 
-    // Interrupt any active playback or fetch immediately
-    this.stop();
+    const cleanText = options.text.trim();
+
+    // Ignore duplicate active speech
+    if (
+      this.currentOptions &&
+      this.currentOptions.text.trim() === cleanText &&
+      this.isSpeaking()
+    ) {
+      console.info("[PiperTTS] Duplicate speech ignored");
+      return true;
+    }
+
+
+    // Stop only previous different speech
+    if (
+      this.isSpeaking() &&
+      this.currentOptions &&
+      this.currentOptions.text.trim() !== cleanText
+    ) {
+      console.info("[PiperTTS] stopping previous speech");
+      this.stop();
+    }
 
     const requestStart = performance.now();
-    const cleanText = options.text.trim();
     const langTag = options.lang.startsWith('te') ? 'te' : 'en';
     const cacheKey = `piper_buf:${langTag}:${cleanText.toLowerCase()}`;
+    if (this.currentRequestKey === cacheKey) {
+      console.info("[PiperTTS] Duplicate request ignored:", cacheKey);
+      return false;
+    }
+    this.currentRequestKey = cacheKey;
 
     console.info(`[PiperTTS] Speak request for lang '${langTag}': "${cleanText.slice(0, 35)}..."`);
 
@@ -216,11 +243,13 @@ export class PiperTTSService {
         gainNode.connect(this.audioContext.destination);
 
         this.currentSourceNode = sourceNode;
-
         sourceNode.onended = () => {
           console.info("[PiperTTS] Web Audio API playback lifecycle completed.");
-          this.setLoading(false);
+
+          this.currentRequestKey = null;
           this.currentSourceNode = null;
+          this.setLoading(false);
+
           if (options.onEnd) options.onEnd();
         };
 
@@ -253,6 +282,7 @@ export class PiperTTSService {
 
       audio.onended = () => {
         console.info("[PiperTTS] HTML5 Audio playback finished.");
+        this.currentRequestKey = null;
         this.setLoading(false);
         if (this.activeBlobUrl) {
           URL.revokeObjectURL(this.activeBlobUrl);
@@ -264,6 +294,7 @@ export class PiperTTSService {
 
       audio.onerror = (err) => {
         console.error("[PiperTTS] HTML5 Audio play error:", err);
+        this.currentRequestKey = null;
         this.setLoading(false);
         this.currentAudio = null;
         if (options.onError) options.onError(new Error("HTML5 Audio play error"));
@@ -274,6 +305,7 @@ export class PiperTTSService {
       return true;
 
     } catch (error: any) {
+      this.currentRequestKey = null;
       if (error.name === 'AbortError' || signal.aborted) {
         console.info("[PiperTTS] Playback request aborted.");
         this.setLoading(false);
