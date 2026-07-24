@@ -1,15 +1,16 @@
 const express = require('express');
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 const { spawn } = require('child_process');
 const { ensurePiperBinary } = require('./setup-piper');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = Number(process.env.PORT) || 5000;
 const serverStartTime = Date.now();
 
 // ---------------------------------------------------------------------------
-// 1. Process Stability Guards - Prevent uncaught exceptions from crashing Node
+// 1. Process Stability Guards & Graceful Shutdown
 // ---------------------------------------------------------------------------
 process.on('uncaughtException', (err) => {
   console.error('[Piper Server Critical Exception] Uncaught Exception:', err);
@@ -19,21 +20,39 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('[Piper Server Critical Rejection] Unhandled Promise Rejection:', reason);
 });
 
+const activeWorkers = {};
+
+function shutdownGracefully(signal) {
+  console.log(`[Piper Server Shutdown] Received ${signal}. Shutting down worker processes gracefully...`);
+  for (const langKey of Object.keys(activeWorkers)) {
+    const worker = activeWorkers[langKey];
+    if (worker && worker.process) {
+      try {
+        worker.process.kill('SIGTERM');
+      } catch (e) {
+        // Ignore kill errors on exit
+      }
+    }
+  }
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => shutdownGracefully('SIGTERM'));
+process.on('SIGINT', () => shutdownGracefully('SIGINT'));
+
 // ---------------------------------------------------------------------------
 // 2. Single Unified CORS & Preflight Middleware - Loaded FIRST
 // ---------------------------------------------------------------------------
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  const allowedOrigins = [
-    'https://ai-live-frontend.onrender.com',
-    'https://ai-live-frontend-8o9a.onrender.com',
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'http://localhost:5000',
-    'http://127.0.0.1:5173'
-  ];
+  const isAllowedOrigin = origin && (
+    origin.endsWith('.onrender.com') ||
+    origin.endsWith('.vercel.app') ||
+    origin.startsWith('http://localhost') ||
+    origin.startsWith('http://127.0.0.1')
+  );
 
-  if (origin && (allowedOrigins.includes(origin) || origin.endsWith('.onrender.com'))) {
+  if (isAllowedOrigin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -49,7 +68,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 // ---------------------------------------------------------------------------
 // 3. System Paths & Constants
@@ -82,6 +101,7 @@ class PiperWorker {
     this.readyPromise = null;
     this.resolveReady = null;
     this.stderrBuffer = '';
+    this.isShuttingDown = false;
   }
 
   start() {
@@ -132,10 +152,13 @@ class PiperWorker {
     });
 
     this.process.on('close', (code) => {
+      if (this.isShuttingDown) return;
       console.warn(`[PiperWorker ${this.langKey}] Process closed with code ${code}. Auto-restarting in 1s...`);
       this.isReady = false;
       this.handleFailure(new Error(`Worker process exited with code ${code}`));
-      setTimeout(() => this.start(), 1000);
+      setTimeout(() => {
+        if (!this.isShuttingDown) this.start();
+      }, 1000);
     });
 
     return this.readyPromise;
@@ -197,18 +220,16 @@ class PiperWorker {
   }
 }
 
-const workers = {};
-
 // Pre-warm Persistent Workers on Startup
 async function initWorkers() {
   const promises = [];
   if (fs.existsSync(MODELS.te)) {
-    workers.te = new PiperWorker('te', MODELS.te);
-    promises.push(workers.te.start());
+    activeWorkers.te = new PiperWorker('te', MODELS.te);
+    promises.push(activeWorkers.te.start());
   }
   if (fs.existsSync(MODELS.en)) {
-    workers.en = new PiperWorker('en', MODELS.en);
-    promises.push(workers.en.start());
+    activeWorkers.en = new PiperWorker('en', MODELS.en);
+    promises.push(activeWorkers.en.start());
   }
   try {
     await Promise.all(promises);
@@ -240,10 +261,10 @@ function synthesizePiperFallbackCLI(text, langKey, tempOutputFile) {
     child.stderr.on('data', (data) => { stderrData += data.toString(); });
 
     child.on('error', (err) => reject(err));
-    child.on('close', (code) => {
+    child.on('close', async (code) => {
       if (code === 0 && fs.existsSync(tempOutputFile)) {
         try {
-          const wavBuffer = fs.readFileSync(tempOutputFile);
+          const wavBuffer = await fsPromises.readFile(tempOutputFile);
           resolve({ queue_time: 0, piper_execution_time: 0, wavBuffer });
         } catch (rErr) { reject(rErr); }
       } else {
@@ -257,7 +278,7 @@ function synthesizePiperFallbackCLI(text, langKey, tempOutputFile) {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Synthesis & Deduplication Orchestrator
+// 5. Synthesis & Deduplication Orchestrator (Non-blocking Async File IO)
 // ---------------------------------------------------------------------------
 async function getOrSynthesizeSpeech(cleanText, langKey) {
   const cacheKey = `${langKey}:${cleanText.toLowerCase()}`;
@@ -280,7 +301,7 @@ async function getOrSynthesizeSpeech(cleanText, langKey) {
 
   const synthesisPromise = (async () => {
     const tempOutputFile = path.join(__dirname, `temp_${Date.now()}_${Math.random().toString(36).slice(2)}.wav`);
-    const worker = workers[langKey];
+    const worker = activeWorkers[langKey];
     let wavBuffer;
     let queue_time = 0;
     let piper_execution_time = 0;
@@ -290,7 +311,7 @@ async function getOrSynthesizeSpeech(cleanText, langKey) {
       try {
         const taskRes = await worker.synthesize(cleanText, tempOutputFile);
         const bufT0 = performance.now();
-        wavBuffer = fs.readFileSync(tempOutputFile);
+        wavBuffer = await fsPromises.readFile(tempOutputFile);
         buffer_generation_time = performance.now() - bufT0;
 
         if (taskRes) {
@@ -307,9 +328,12 @@ async function getOrSynthesizeSpeech(cleanText, langKey) {
       wavBuffer = fbRes.wavBuffer;
     }
 
-    setTimeout(() => {
-      if (fs.existsSync(tempOutputFile)) {
-        fs.unlink(tempOutputFile, () => {});
+    // Clean up temporary file asynchronously after reading
+    setTimeout(async () => {
+      try {
+        await fsPromises.unlink(tempOutputFile);
+      } catch (unlinkErr) {
+        // Ignore file missing errors
       }
     }, 150);
 
@@ -345,42 +369,53 @@ async function getOrSynthesizeSpeech(cleanText, langKey) {
 // Health Monitoring Endpoint (GET /health)
 app.get('/health', (req, res) => {
   const uptimeSeconds = Math.floor((Date.now() - serverStartTime) / 1000);
-  return res.json({
+  return res.status(200).json({
     status: 'ok',
     workers: {
-      te: Boolean(workers.te && workers.te.isReady),
-      en: Boolean(workers.en && workers.en.isReady)
+      te: Boolean(activeWorkers.te && activeWorkers.te.isReady),
+      en: Boolean(activeWorkers.en && activeWorkers.en.isReady)
     },
     uptime: `${uptimeSeconds}s`
   });
 });
 
-// Legacy Health / API Info Endpoint (GET /api/tts)
+// Health / API Info Endpoint (GET /api/tts)
 app.get('/api/tts', (req, res) => {
-  return res.json({
+  return res.status(200).json({
     status: 'online',
     engine: 'Piper Native Neural Executable Engine v1.2.0 (Pre-warmed RAM Daemon Pool)',
     platform: process.platform,
-    piperBinary: PIPER_BIN,
     piperBinaryExists: fs.existsSync(PIPER_BIN),
     workersReady: {
-      te: Boolean(workers.te && workers.te.isReady),
-      en: Boolean(workers.en && workers.en.isReady)
+      te: Boolean(activeWorkers.te && activeWorkers.te.isReady),
+      en: Boolean(activeWorkers.en && activeWorkers.en.isReady)
     },
     cachedSentences: ttsAudioCacheMap.size,
-    models: MODELS,
     supportedLanguages: ['te', 'te-IN', 'en', 'en-US']
   });
 });
-
+app.get('/api/status', (req, res) => {
+  return res.status(200).json({
+    status: 'online',
+    engine: 'Piper Native Neural Executable Engine v1.2.0 (Pre-warmed RAM Daemon Pool)',
+    platform: process.platform,
+    piperBinaryExists: fs.existsSync(PIPER_BIN),
+    workersReady: {
+      te: Boolean(activeWorkers.te && activeWorkers.te.isReady),
+      en: Boolean(activeWorkers.en && activeWorkers.en.isReady)
+    },
+    cachedSentences: ttsAudioCacheMap.size,
+    supportedLanguages: ['te', 'te-IN', 'en', 'en-US']
+  });
+});
 app.get('/', (req, res) => {
   return res.send(`
     <div style="font-family: system-ui, sans-serif; padding: 2rem; background: #0f172a; color: #f8fafc; min-height: 100vh;">
       <h1 style="color: #38bdf8;">🔊 Multilingual Piper Native Neural Engine Server</h1>
       <p>Server Status: <strong style="color: #4ade80;">Active on Port ${PORT}</strong></p>
       <p>Platform: <code>${process.platform}</code></p>
-      <p>Telugu Worker Warm Ready: <code style="color: #4ade80;">${Boolean(workers.te && workers.te.isReady)}</code></p>
-      <p>English Worker Warm Ready: <code style="color: #4ade80;">${Boolean(workers.en && workers.en.isReady)}</code></p>
+      <p>Telugu Worker Warm Ready: <code style="color: #4ade80;">${Boolean(activeWorkers.te && activeWorkers.te.isReady)}</code></p>
+      <p>English Worker Warm Ready: <code style="color: #4ade80;">${Boolean(activeWorkers.en && activeWorkers.en.isReady)}</code></p>
       <p>In-Memory Audio Cache Size: <code>${ttsAudioCacheMap.size}</code> sentences</p>
     </div>
   `);
@@ -392,7 +427,7 @@ app.post('/api/tts', async (req, res) => {
   req.setTimeout(30000); // 30-second HTTP timeout protection
 
   const { text = '', lang = 'te' } = req.body || {};
-  
+
   if (!text || !text.trim()) {
     return res.status(400).json({ error: 'Missing text parameter' });
   }
@@ -433,12 +468,11 @@ app.post('/api/tts', async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     res.setHeader('X-Piper-Latency-Ms', total_latency.toFixed(1));
 
-    return res.status(200).end(wavBuffer);
+    return res.status(200).send(wavBuffer);
 
   } catch (error) {
     console.error('[Piper Server Exception] Unhandled synthesis error in /api/tts:', error);
     if (!res.headersSent) {
-      res.setHeader('Access-Control-Allow-Origin', '*');
       return res.status(500).json({
         error: 'Failed to generate Piper WAV audio stream',
         details: error.message || String(error)
@@ -451,7 +485,6 @@ app.post('/api/tts', async (req, res) => {
 app.use((err, req, res, next) => {
   console.error('[Piper Server Global Error Middleware] Unhandled error:', err);
   if (!res.headersSent) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
     res.status(500).json({
       error: 'Internal Server Error',
@@ -469,18 +502,18 @@ async function startServer() {
   await ensurePiperBinary();
 
   if (!isWin && fs.existsSync(PIPER_BIN)) {
-    try { fs.chmodSync(PIPER_BIN, 0o755); } catch (e) {}
+    try { fs.chmodSync(PIPER_BIN, 0o755); } catch (e) { }
   }
 
   console.log('[Piper Server Startup] 2. Initializing and pre-warming persistent RAM daemon workers...');
   await initWorkers();
 
-  const teReady = Boolean(workers.te && workers.te.isReady);
-  const enReady = Boolean(workers.en && workers.en.isReady);
+  const teReady = Boolean(activeWorkers.te && activeWorkers.te.isReady);
+  const enReady = Boolean(activeWorkers.en && activeWorkers.en.isReady);
   console.log(`[Piper Server Startup] 3. Persistent Workers Warm Status ➔ Telugu: ${teReady}, English: ${enReady}`);
 
   app.listen(PORT, () => {
-    console.log(`🚀 Multilingual Piper Native Neural Engine Server running on http://localhost:${PORT}`);
+    console.log(`🚀 Multilingual Piper Native Neural Engine Server running on Port ${PORT}`);
   });
 }
 

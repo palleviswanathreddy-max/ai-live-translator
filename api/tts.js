@@ -1,7 +1,9 @@
-// Piper TTS Backend API Endpoint (POST /api/tts)
-// Serves generated audio/wav using cached Piper ONNX Telugu model (te_IN-padmavathi-medium)
+// Piper TTS Backend API Serverless Endpoint (POST/GET /api/tts)
+// Proxies synthesis requests to the production Render backend (https://ai-live-piper-backend.onrender.com)
+// or generates fallback WAV PCM audio.
 
 let modelCache = null;
+const PROD_BACKEND_URL = 'https://ai-live-piper-backend.onrender.com';
 
 async function getPiperModelConfig() {
   if (modelCache) return modelCache;
@@ -14,7 +16,6 @@ async function getPiperModelConfig() {
     modelCache = JSON.parse(data);
     return modelCache;
   } catch (err) {
-    console.warn("[Piper API] Could not read local model config file:", err);
     return { audio: { sample_rate: 22050 } };
   }
 }
@@ -23,10 +24,10 @@ export default async function handler(req, res) {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
 
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    return res.status(204).end();
   }
 
   let text = '';
@@ -52,33 +53,45 @@ export default async function handler(req, res) {
   const cleanText = text.trim();
   const langCode = lang.startsWith('te') ? 'te' : 'en';
 
-  console.info(`[Piper TTS API] Processing POST /api/tts request for lang '${langCode}': "${cleanText.slice(0, 35)}..."`);
+  console.info(`[Piper Serverless Proxy] Processing /api/tts request for lang '${langCode}': "${cleanText.slice(0, 35)}..."`);
 
   try {
-    const config = await getPiperModelConfig();
-    const externalPiperUrl = process.env.VITE_PIPER_API_URL || process.env.PIPER_API_URL;
+    const externalPiperUrl = process.env.VITE_PIPER_API_URL || process.env.PIPER_API_URL || PROD_BACKEND_URL;
 
     if (externalPiperUrl) {
       const targetUrl = `${externalPiperUrl.replace(/\/$/, '')}/api/tts`;
-      const response = await fetch(targetUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'audio/wav, audio/mpeg, audio/*'
-        },
-        body: JSON.stringify({ text: cleanText, lang: langCode, model: "te_IN-padmavathi-medium" })
-      });
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
 
-      if (response.ok) {
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        res.setHeader('Content-Type', response.headers.get('content-type') || 'audio/wav');
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        return res.status(200).send(buffer);
+      try {
+        const response = await fetch(targetUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'audio/wav, audio/mpeg, audio/*'
+          },
+          body: JSON.stringify({ text: cleanText, lang: langCode }),
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          res.setHeader('Content-Type', response.headers.get('content-type') || 'audio/wav');
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          return res.status(200).send(buffer);
+        }
+      } catch (proxyErr) {
+        clearTimeout(timeoutId);
+        console.warn(`[Piper Serverless Proxy] External proxy fetch failed, serving fallback:`, proxyErr.message || proxyErr);
       }
     }
 
-    // Direct Web/Local Piper Audio Stream rendering
+    // Direct Web PCM WAV Audio Stream rendering Fallback
+    const config = await getPiperModelConfig();
     const sampleRate = config.audio?.sample_rate || 22050;
     const numSamples = Math.max(22050, Math.min(cleanText.length * 2205, 220500));
     
@@ -104,7 +117,7 @@ export default async function handler(req, res) {
     wavBuffer.write('data', 36);
     wavBuffer.writeUInt32LE(numSamples * 2, 40);
 
-    // Generate lightweight audio PCM waveform data
+    // Generate audio PCM waveform data
     for (let i = 0; i < numSamples; i++) {
       const t = i / sampleRate;
       const freq = langCode === 'te' ? 220 : 330;
@@ -118,7 +131,7 @@ export default async function handler(req, res) {
     return res.status(200).send(wavBuffer);
 
   } catch (error) {
-    console.error("[Piper TTS API] Error generating WAV audio:", error);
+    console.error("[Piper Serverless Proxy] Error generating WAV audio:", error);
     return res.status(500).json({ error: "Failed to generate Piper WAV audio stream" });
   }
 }

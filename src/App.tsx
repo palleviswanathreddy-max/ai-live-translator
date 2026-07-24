@@ -66,7 +66,7 @@ export function App() {
       learningLevel: 'beginner'
     };
   });
-
+  console.log("User Profile:", userProfile);
   // Conversation History State
   const [history, setHistory] = useState<TranslationItem[]>(() => {
     const saved = localStorage.getItem('ai_translator_history');
@@ -229,7 +229,7 @@ export function App() {
 
   return (
     <div className={`min-h-screen ${darkMode ? 'dark bg-darkBg text-slate-100' : 'bg-slate-50 text-slate-900'} transition-colors duration-300`}>
-      
+
       {/* Top Header */}
       <Header
         user={userProfile}

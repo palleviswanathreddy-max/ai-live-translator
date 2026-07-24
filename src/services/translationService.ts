@@ -1,5 +1,7 @@
-import { LanguageCode, TranslationItem, ContextMode } from '../types';
+import { LanguageCode, ContextMode } from '../types';
 import { findLocalTranslation, generateStudentBreakdown } from '../utils/dictionary';
+import { httpClient } from '../utils/httpClient';
+import { CONFIG } from '../config';
 
 export interface TranslationResult {
   translatedText: string;
@@ -22,7 +24,6 @@ function decodeHTMLEntities(text: string): string {
 
 // In-Memory Translation LRU Cache
 const translationCacheMap = new Map<string, TranslationResult>();
-const MAX_CACHE_SIZE = 100;
 
 export async function translateText(
   sourceText: string,
@@ -74,7 +75,7 @@ export async function translateText(
       provider: 'Offline Neural Engine'
     };
 
-    if (translationCacheMap.size >= MAX_CACHE_SIZE) {
+    if (translationCacheMap.size >= CONFIG.MAX_TRANSLATION_CACHE_SIZE) {
       const firstKey = translationCacheMap.keys().next().value;
       if (firstKey) translationCacheMap.delete(firstKey);
     }
@@ -90,7 +91,7 @@ export async function translateText(
   }
 
   const saveResultToCache = (res: TranslationResult): TranslationResult => {
-    if (translationCacheMap.size >= MAX_CACHE_SIZE) {
+    if (translationCacheMap.size >= CONFIG.MAX_TRANSLATION_CACHE_SIZE) {
       const firstKey = translationCacheMap.keys().next().value;
       if (firstKey) translationCacheMap.delete(firstKey);
     }
@@ -103,14 +104,10 @@ export async function translateText(
     return res;
   };
 
-  // Step 2: Try Google Translate Free API Endpoint
+  // Step 2: Try Google Translate Free API Endpoint using HttpClient
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
     const gUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${srcCode}&tl=${tgtCode}&dt=t&q=${encodeURIComponent(cleanInput)}`;
-    
-    const response = await fetch(gUrl, { signal: controller.signal });
-    clearTimeout(timeoutId);
+    const response = await httpClient.get(gUrl, { timeoutMs: 4000, retries: 0, skipErrorLogging: true });
 
     if (response.ok) {
       const data = await response.json();
@@ -133,18 +130,14 @@ export async function translateText(
       }
     }
   } catch (err) {
-    console.warn("Google Translate API unreachable, attempting MyMemory API fallback:", err);
+    console.warn("Google Translate API unreachable, attempting MyMemory API fallback...");
   }
 
-  // Step 3: Try MyMemory Translation API
+  // Step 3: Try MyMemory Translation API using HttpClient
   try {
     const langPair = `${srcCode}|${tgtCode}`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-
     const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(cleanInput)}&langpair=${langPair}`;
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeoutId);
+    const response = await httpClient.get(url, { timeoutMs: 4000, retries: 0, skipErrorLogging: true });
 
     if (response.ok) {
       const data = await response.json();
@@ -173,7 +166,7 @@ export async function translateText(
       }
     }
   } catch (err) {
-    console.warn("MyMemory API unreachable, switching to smart neural fallback:", err);
+    console.warn("MyMemory API unreachable, switching to smart neural fallback...");
   }
 
   // Step 4: Smart Offline Heuristic Fallback

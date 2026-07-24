@@ -7,7 +7,7 @@ import { TranslationItem, LanguageCode, VoiceSettings, ContextMode } from '../ty
 import { AudioWaveform } from './AudioWaveform';
 import { StudentLearnerCard } from './StudentLearnerCard';
 import { speechRecognizer } from '../services/speechRecognition';
-import { speechSpeaker } from '../services/speechSynthesis';
+import { playPiperVoice } from '../services/piperTTS';
 import { translateText } from '../services/translationService';
 
 interface VoiceModeProps {
@@ -144,12 +144,14 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
       if (settings.autoPlay) {
         setPlayingId(newItem.id);
         console.info('[TTS STARTED]', { lang: currentTgtLang });
-        speechSpeaker.speak(result.translatedText, currentTgtLang, settings, () => {
-          console.info('[TTS COMPLETED]');
-          setPlayingId(null);
-          isProcessingTranslationRef.current = false;
-          speechRecognizer.setProcessing(false);
-        });
+        await playPiperVoice(
+          result.translatedText,
+          currentTgtLang === "te-IN" ? "te" : "en"
+        );
+        console.info('[TTS COMPLETED]');
+        setPlayingId(null);
+        isProcessingTranslationRef.current = false;
+        speechRecognizer.setProcessing(false);
       } else {
         isProcessingTranslationRef.current = false;
         speechRecognizer.setProcessing(false);
@@ -167,11 +169,13 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
   // Manual Play Audio
   const handlePlayAudio = (item: TranslationItem) => {
     if (playingId === item.id) {
-      speechSpeaker.stop();
       setPlayingId(null);
     } else {
       setPlayingId(item.id);
-      speechSpeaker.speak(item.translatedText, item.targetLang, settings, () => {
+      playPiperVoice(
+        item.translatedText,
+        item.targetLang === "te-IN" ? "te" : "en"
+      ).then(() => {
         setPlayingId(null);
       });
     }

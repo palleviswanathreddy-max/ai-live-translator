@@ -26,9 +26,9 @@ export const Header: React.FC<HeaderProps> = React.memo(({
   return (
     <header className="sticky top-0 z-40 glass-nav px-4 lg:px-8 py-3 transition-all duration-300">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-        
+
         {/* Brand Logo & Name */}
-        <div 
+        <div
           onClick={() => setActiveTab('voice')}
           className="flex items-center gap-3 cursor-pointer group shrink-0"
         >
@@ -56,66 +56,60 @@ export const Header: React.FC<HeaderProps> = React.memo(({
         <nav className="hidden md:flex items-center gap-1 bg-slate-900/80 p-1.5 rounded-2xl border border-white/10">
           <button
             onClick={() => setActiveTab('learning')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold tracking-wide transition-all duration-200 flex items-center gap-1.5 ${
-              activeTab === 'learning'
-                ? 'bg-gradient-to-r from-emerald-600 to-teal-500 text-white shadow-md shadow-emerald-500/25 ring-1 ring-emerald-400/40'
-                : 'text-emerald-400 hover:text-white hover:bg-emerald-500/10'
-            }`}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold tracking-wide transition-all duration-200 flex items-center gap-1.5 ${activeTab === 'learning'
+              ? 'bg-gradient-to-r from-emerald-600 to-teal-500 text-white shadow-md shadow-emerald-500/25 ring-1 ring-emerald-400/40'
+              : 'text-emerald-400 hover:text-white hover:bg-emerald-500/10'
+              }`}
           >
             <GraduationCap className="w-4 h-4 text-emerald-300" /> Learning Academy
           </button>
-          
+
           <button
             onClick={() => setActiveTab('voice')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 flex items-center gap-1.5 ${
-              activeTab === 'voice'
-                ? 'bg-gradient-to-r from-brand-600 to-cyan-600 text-white shadow-md shadow-brand-500/25'
-                : 'text-slate-400 hover:text-white hover:bg-white/5'
-            }`}
+            className={`px-3.5 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 flex items-center gap-1.5 ${activeTab === 'voice'
+              ? 'bg-gradient-to-r from-brand-600 to-cyan-600 text-white shadow-md shadow-brand-500/25'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
           >
             <Sparkles className="w-3.5 h-3.5" /> Real-Time Voice
           </button>
 
           <button
             onClick={() => setActiveTab('text')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 flex items-center gap-1.5 ${
-              activeTab === 'text'
-                ? 'bg-gradient-to-r from-brand-600 to-cyan-600 text-white shadow-md shadow-brand-500/25'
-                : 'text-slate-400 hover:text-white hover:bg-white/5'
-            }`}
+            className={`px-3.5 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 flex items-center gap-1.5 ${activeTab === 'text'
+              ? 'bg-gradient-to-r from-brand-600 to-cyan-600 text-white shadow-md shadow-brand-500/25'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
           >
             <Languages className="w-3.5 h-3.5" /> Text Translate
           </button>
 
           <button
             onClick={() => setActiveTab('phrasebook')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 flex items-center gap-1.5 ${
-              activeTab === 'phrasebook'
-                ? 'bg-gradient-to-r from-brand-600 to-cyan-600 text-white shadow-md shadow-brand-500/25'
-                : 'text-slate-400 hover:text-white hover:bg-white/5'
-            }`}
+            className={`px-3.5 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 flex items-center gap-1.5 ${activeTab === 'phrasebook'
+              ? 'bg-gradient-to-r from-brand-600 to-cyan-600 text-white shadow-md shadow-brand-500/25'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
           >
             <BookMarked className="w-3.5 h-3.5" /> Phrasebook
           </button>
 
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 flex items-center gap-1.5 ${
-              activeTab === 'dashboard'
-                ? 'bg-gradient-to-r from-brand-600 to-cyan-600 text-white shadow-md shadow-brand-500/25'
-                : 'text-slate-400 hover:text-white hover:bg-white/5'
-            }`}
+            className={`px-3.5 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 flex items-center gap-1.5 ${activeTab === 'dashboard'
+              ? 'bg-gradient-to-r from-brand-600 to-cyan-600 text-white shadow-md shadow-brand-500/25'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
           >
             <BarChart3 className="w-3.5 h-3.5" /> Analytics
           </button>
 
           <button
             onClick={() => setActiveTab('history')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 flex items-center gap-1.5 ${
-              activeTab === 'history'
-                ? 'bg-gradient-to-r from-brand-600 to-cyan-600 text-white shadow-md shadow-brand-500/25'
-                : 'text-slate-400 hover:text-white hover:bg-white/5'
-            }`}
+            className={`px-3.5 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 flex items-center gap-1.5 ${activeTab === 'history'
+              ? 'bg-gradient-to-r from-brand-600 to-cyan-600 text-white shadow-md shadow-brand-500/25'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
           >
             History & Exports
           </button>
@@ -123,7 +117,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
 
         {/* Right Action Icons & User Profile */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          
+
           {/* Quick Voice Settings Button */}
           <button
             onClick={onOpenSettings}
@@ -152,11 +146,15 @@ export const Header: React.FC<HeaderProps> = React.memo(({
             className="flex items-center gap-2 p-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-gradient-to-r from-brand-600/20 to-cyan-500/20 border border-brand-500/30 hover:border-brand-500/60 transition-all duration-200 text-left"
           >
             <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-brand-500 to-cyan-400 flex items-center justify-center font-bold text-white text-xs shadow-inner">
-              {user.avatar ? <img src={user.avatar} alt="User Profile Avatar" className="w-full h-full rounded-lg object-cover" /> : user.name.charAt(0)}
+              {user?.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt="User Profile Avatar"
+                  className="w-full h-full rounded-lg object-cover" />) : ((user?.name?.charAt(0) || "G").toUpperCase())}
             </div>
             <div className="hidden lg:block">
-              <p className="text-xs font-semibold text-white leading-tight">{user.name}</p>
-              <p className="text-[10px] text-emerald-400 font-medium">{user.learningLevel.toUpperCase()} LEVEL</p>
+              <p className="text-xs font-semibold text-white leading-tight">{user?.name ?? "Guest"}</p>
+              <p className="text-[10px] text-emerald-400 font-medium">{(user.learningLevel ?? "Beginner").toUpperCase()} LEVEL </p>
             </div>
           </button>
 
